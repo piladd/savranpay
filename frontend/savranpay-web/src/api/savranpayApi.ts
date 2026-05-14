@@ -142,7 +142,7 @@ export async function getDashboard() {
 }
 
 export async function login(loginName: string, password: string) {
-  const result = await request<LoginResult>('/api/v1/auth/login', {
+  const result = await rawRequest<LoginResult>('/api/v1/auth/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -156,7 +156,19 @@ export async function login(loginName: string, password: string) {
   return result
 }
 
-export function logout() {
+export async function logout() {
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (refreshToken) {
+    await rawRequest('/api/v1/auth/logout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Request-Id': crypto.randomUUID(),
+      },
+      body: JSON.stringify({ refreshToken }),
+    }).catch(() => undefined)
+  }
+
   localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
 }
@@ -208,20 +220,67 @@ export async function reportUnauthorizedClaim(transferId: string) {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response = await rawFetch(path, init)
+
+  if (response.status === 401 && (await refreshTokens())) {
+    response = await rawFetch(path, init)
+  }
+
+  return parseResponse<T>(response)
+}
+
+async function rawRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  return parseResponse<T>(await rawFetch(path, init))
+}
+
+async function rawFetch(path: string, init?: RequestInit) {
   const headers = new Headers(init?.headers)
   const token = getAccessToken()
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  return fetch(`${API_BASE_URL}${path}`, {
     cache: 'no-store',
     ...init,
     headers,
   })
+}
+
+async function refreshTokens() {
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY)
+  if (!refreshToken) {
+    return false
+  }
+
+  const response = await rawFetch('/api/v1/auth/refresh', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({ refreshToken }),
+  })
 
   if (!response.ok) {
+    localStorage.removeItem(ACCESS_TOKEN_KEY)
+    localStorage.removeItem(REFRESH_TOKEN_KEY)
+    return false
+  }
+
+  const result = (await response.json()) as LoginResult
+  localStorage.setItem(ACCESS_TOKEN_KEY, result.accessToken)
+  localStorage.setItem(REFRESH_TOKEN_KEY, result.refreshToken)
+  return true
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
     throw new Error(await response.text())
+  }
+
+  if (response.status === 204) {
+    return undefined as T
   }
 
   return response.json() as Promise<T>

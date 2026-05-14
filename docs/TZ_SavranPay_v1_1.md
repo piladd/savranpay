@@ -15,6 +15,8 @@ SavranPay предназначен для безопасного создани�
 - `Admin` - административный кабинет `/cabinet/admin`.
 - `Auditor` - кабинет аудита `/cabinet/audit`.
 
+Администратор получает backend API для управления пользователями, ролями, блокировкой и разблокировкой учетных записей.
+
 ## 3. Авторизация
 
 Реализованы:
@@ -22,6 +24,10 @@ SavranPay предназначен для безопасного создани�
 - вход по `login/password`;
 - JWT access token;
 - refresh token с хранением хеша в таблице `refresh_tokens`;
+- server-side logout с отзывом refresh token;
+- текущий профиль `/api/v1/auth/me`;
+- смена пароля с отзывом активных refresh tokens;
+- список пользовательских сессий `/api/v1/auth/sessions`;
 - привязка пользователя к ролям через `users`, `roles`, `user_roles`;
 - конфигурационный флаг `Jwt__RequireAuthorization=true` для включения обязательной авторизации в production-контуре.
 
@@ -42,8 +48,10 @@ SavranPay предназначен для безопасного создани�
 - `roles`
 - `user_roles`
 - `refresh_tokens`
+- `user_sessions`
 - `accounts`
 - `transfers`
+- `risk_checks`
 - `ledger`
 - `audit_events`
 - `outbox_messages`
@@ -78,9 +86,14 @@ docker compose up --build
 
 ## 7. Outbox/inbox и уведомления
 
-Реализованы таблицы `outbox_messages` и `inbox_messages`. Backend кладет события аудита и уведомлений в outbox, `BankTransfers.Workers` забирает недоставленные сообщения и передает уведомления в адаптер `INotificationSender`.
+Реализованы таблицы `outbox_messages` и `inbox_messages`. Backend кладет события аудита и уведомлений в outbox, `SavranPay.Workers` забирает недоставленные сообщения и передает уведомления в адаптер `INotificationSender`.
 
 Текущий адаптер `LoggingNotificationSender` является заменяемым портом для email/SMS/push провайдера.
+
+AML/Fraud проверки сохраняются в `risk_checks`. Для ручной работы офицеров добавлены endpoint'ы принятия решений по переводу:
+
+- `POST /api/v1/aml/transfers/{transferId}/decision`
+- `POST /api/v1/fraud/transfers/{transferId}/decision`
 
 ## 8. Мониторинг
 

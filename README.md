@@ -8,6 +8,9 @@ SavranPay - учебный банковский сервис переводов 
 - Frontend на Vue 3 + TypeScript + Vite.
 - Авторизация по `login/password`.
 - JWT access token и refresh token.
+- Backend logout, current-user endpoint, password change and session list.
+- Admin API для пользователей, ролей, блокировки и разблокировки.
+- Manual decision API для AML/Fraud кабинетов.
 - Роли: `Customer`, `SupportOperator`, `AmlOfficer`, `FraudOfficer`, `Admin`, `Auditor`.
 - Отдельные кабинеты:
   - `/cabinet/client`
@@ -18,7 +21,7 @@ SavranPay - учебный банковский сервис переводов 
   - `/cabinet/audit`
 - PostgreSQL + EF Core.
 - Миграция начальной схемы БД.
-- Таблицы `users`, `roles`, `user_roles`, `refresh_tokens`, `accounts`, `transfers`, `ledger`, `audit_events`, `outbox_messages`, `inbox_messages`, `notifications`.
+- Таблицы `users`, `roles`, `user_roles`, `refresh_tokens`, `user_sessions`, `accounts`, `transfers`, `risk_checks`, `ledger`, `audit_events`, `outbox_messages`, `inbox_messages`, `notifications`.
 - Outbox worker для обработки событий и уведомлений.
 - Health checks: `/health/live`, `/health/ready`.
 - Метрики в Prometheus text format: `/metrics`.
@@ -30,21 +33,21 @@ SavranPay - учебный банковский сервис переводов 
 
 ```text
 src/
-  BankTransfers.Api              ASP.NET Core API, JWT, endpoints, health, metrics
-  BankTransfers.Application      use cases, handlers, interfaces
-  BankTransfers.Domain           domain model: accounts, transfers, money, risk
-  BankTransfers.Infrastructure   EF Core, PostgreSQL, auth, audit, crypto, notifications
-  BankTransfers.Workers          outbox worker
-  BankTransfers.SharedKernel     common domain primitives
+  SavranPay.Api              ASP.NET Core API, JWT, endpoints, health, metrics
+  SavranPay.Application      use cases, handlers, interfaces
+  SavranPay.Domain           domain model: accounts, transfers, money, risk
+  SavranPay.Infrastructure   EF Core, PostgreSQL, auth, audit, crypto, notifications
+  SavranPay.Workers          outbox worker
+  SavranPay.SharedKernel     common domain primitives
 
 frontend/
   savranpay-web                  Vue 3 + TypeScript frontend
 
 tests/
-  BankTransfers.UnitTests
-  BankTransfers.IntegrationTests
-  BankTransfers.SecurityTests
-  BankTransfers.ContractTests
+  SavranPay.UnitTests
+  SavranPay.IntegrationTests
+  SavranPay.SecurityTests
+  SavranPay.ContractTests
 
 docs/
   api
@@ -62,7 +65,7 @@ docs/
 ```powershell
 dotnet build
 dotnet test --no-build
-dotnet run --project src\BankTransfers.Api\BankTransfers.Api.csproj --launch-profile https
+dotnet run --project src\SavranPay.Api\SavranPay.Api.csproj --launch-profile https
 ```
 
 Backend:
@@ -121,6 +124,10 @@ audit@savranpay.local   / Audit123!
 ```text
 POST /api/v1/auth/login
 POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+GET  /api/v1/auth/me
+POST /api/v1/auth/change-password
+GET  /api/v1/auth/sessions
 
 GET  /api/v1/dashboard
 GET  /api/v1/accounts
@@ -139,6 +146,17 @@ GET  /api/v1/cabinets
 GET  /health/live
 GET  /health/ready
 GET  /metrics
+
+GET    /api/v1/admin/users
+POST   /api/v1/admin/users
+PATCH  /api/v1/admin/users/{userId}
+POST   /api/v1/admin/users/{userId}/roles
+DELETE /api/v1/admin/users/{userId}/roles/{role}
+POST   /api/v1/admin/users/{userId}/block
+POST   /api/v1/admin/users/{userId}/unblock
+
+POST   /api/v1/aml/transfers/{transferId}/decision
+POST   /api/v1/fraud/transfers/{transferId}/decision
 ```
 
 OpenAPI-спецификация находится в `docs/api/openapi.yaml`.
@@ -150,7 +168,7 @@ EF Core контекст: `SavranPayDbContext`.
 Миграция начальной схемы лежит в:
 
 ```text
-src/BankTransfers.Infrastructure/Migrations
+src/SavranPay.Infrastructure/Migrations
 ```
 
 Backend автоматически применяет миграции при старте, если задана строка подключения:
@@ -176,7 +194,9 @@ Authorization: Bearer <token>
 
 ## Outbox, inbox и уведомления
 
-Backend сохраняет события в `outbox_messages`. Worker `BankTransfers.Workers` забирает недоставленные события и передает уведомления через `INotificationSender`.
+Backend сохраняет события в `outbox_messages`. Worker `SavranPay.Workers` забирает недоставленные события и передает уведомления через `INotificationSender`.
+
+AML/Fraud decisions сохраняются в `risk_checks`, поэтому кабинеты AML/Fraud работают и в PostgreSQL-режиме, а не только в in-memory demo.
 
 Сейчас используется `LoggingNotificationSender`. Для production его нужно заменить на email/SMS/push адаптер.
 

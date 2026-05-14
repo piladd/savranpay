@@ -2,7 +2,7 @@ services:
   - type: web
     name: savranpay-backend
     runtime: docker
-    dockerfilePath: ./src/BankTransfers.Api/Dockerfile
+    dockerfilePath: ./src/SavranPay.Api/Dockerfile
     dockerContext: .
     plan: starter
     healthCheckPath: /health/ready
@@ -23,7 +23,7 @@ services:
   - type: worker
     name: savranpay-worker
     runtime: docker
-    dockerfilePath: ./src/BankTransfers.Workers/Dockerfile
+    dockerfilePath: ./src/SavranPay.Workers/Dockerfile
     dockerContext: .
     plan: starter
     envVars:

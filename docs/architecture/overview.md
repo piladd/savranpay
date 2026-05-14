@@ -4,23 +4,23 @@
 
 ```mermaid
 flowchart TB
-    Client["Mobile/Web Client"] --> Api["BankTransfers.Api"]
-    Api --> Application["BankTransfers.Application"]
-    Application --> Domain["BankTransfers.Domain"]
-    Application --> Infrastructure["BankTransfers.Infrastructure"]
+    Client["Mobile/Web Client"] --> Api["SavranPay.Api"]
+    Api --> Application["SavranPay.Application"]
+    Application --> Domain["SavranPay.Domain"]
+    Application --> Infrastructure["SavranPay.Infrastructure"]
     Infrastructure --> Database["PostgreSQL / MS SQL Server"]
     Infrastructure --> Broker["Message Broker"]
-    Broker --> Workers["BankTransfers.Workers"]
+    Broker --> Workers["SavranPay.Workers"]
 ```
 
 ## Слои
 
-`BankTransfers.Api` принимает HTTP-запросы, проверяет заголовки и вызывает сценарии приложения.
+`SavranPay.Api` принимает HTTP-запросы, проверяет заголовки и вызывает сценарии приложения.
 
-`BankTransfers.Application` содержит команды, обработчики, интерфейсы внешних зависимостей и бизнес-сценарии.
+`SavranPay.Application` содержит команды, обработчики, интерфейсы внешних зависимостей и бизнес-сценарии.
 
-`BankTransfers.Domain` содержит сущности, value objects, статусы и правила переходов.
+`SavranPay.Domain` содержит сущности, value objects, статусы и правила переходов.
 
-`BankTransfers.Infrastructure` содержит реализации репозиториев, AML, антифрода, криптографии и аудита.
+`SavranPay.Infrastructure` содержит реализации репозиториев, AML, антифрода, криптографии и аудита.
 
-`BankTransfers.Workers` предназначен для фоновой обработки outbox, уведомлений и сверок.
+`SavranPay.Workers` предназначен для фоновой обработки outbox, уведомлений и сверок.

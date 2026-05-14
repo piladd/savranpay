@@ -1,0 +1,39 @@
+# This is a generated file. Not intended for manual editing.
+services:
+  backend:
+    build:
+      context: "D:\\курсовая"
+      dockerfile: "src/SavranPay.Api/Dockerfile"
+      target: "build"
+    command: []
+    entrypoint:
+    - "dotnet"
+    - "/app/bin/Debug/net8.0/SavranPay.Api.dll"
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+      ASPNETCORE_STATICWEBASSETS: "/app/bin/Debug/net8.0/SavranPay.Api.staticwebassets.runtime.CT.json"
+    image: "savranpay.api:dev"
+    ports: []
+    volumes:
+    - "D:\\курсовая\\src\\SavranPay.Api:/app:rw"
+    - "D:\\курсовая:/src:rw"
+    - "C:\\Users\\savra\\.nuget\\packages:/root/.nuget/packages"
+    working_dir: "/app"
+  worker:
+    build:
+      context: "D:\\курсовая"
+      dockerfile: "src/SavranPay.Workers/Dockerfile"
+      target: "build"
+    command: []
+    entrypoint:
+    - "dotnet"
+    - "/app/bin/Debug/net8.0/SavranPay.Workers.dll"
+    environment:
+      DOTNET_ENVIRONMENT: "Development"
+    image: "savranpay.workers:dev"
+    ports: []
+    volumes:
+    - "D:\\курсовая\\src\\SavranPay.Workers:/app:rw"
+    - "D:\\курсовая:/src:rw"
+    - "C:\\Users\\savra\\.nuget\\packages:/root/.nuget/packages"
+    working_dir: "/app"

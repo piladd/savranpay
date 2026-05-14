@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\SavranPay.Domain\SavranPay.Domain.csproj" />
+    <ProjectReference Include="..\SavranPay.SharedKernel\SavranPay.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

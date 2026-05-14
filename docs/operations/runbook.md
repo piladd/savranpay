@@ -5,7 +5,7 @@
 ```powershell
 dotnet build
 dotnet test --no-build
-dotnet run --project src\BankTransfers.Api\BankTransfers.Api.csproj --launch-profile https
+dotnet run --project src\SavranPay.Api\SavranPay.Api.csproj --launch-profile https
 ```
 
 ## Проверка доступности

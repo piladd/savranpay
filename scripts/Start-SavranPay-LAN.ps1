@@ -17,4 +17,4 @@ if ($ip) {
     Write-Host "Open from another device on the same Wi-Fi/LAN: http://${ip}:5080"
 }
 
-dotnet run --project src\BankTransfers.Api\BankTransfers.Api.csproj --launch-profile lan-http
+dotnet run --project src\SavranPay.Api\SavranPay.Api.csproj --launch-profile lan-http

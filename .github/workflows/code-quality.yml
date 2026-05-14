@@ -19,10 +19,10 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore BankTransfers.sln
+        run: dotnet restore SavranPay.sln
 
       - name: Check formatting
-        run: dotnet format BankTransfers.sln --verify-no-changes --severity warn
+        run: dotnet format SavranPay.sln --verify-no-changes --severity warn
 
   build-warnings:
     name: Build — Treat Warnings as Errors
@@ -38,11 +38,11 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore BankTransfers.sln
+        run: dotnet restore SavranPay.sln
 
       - name: Build strict
         run: >
-          dotnet build BankTransfers.sln
+          dotnet build SavranPay.sln
           --no-restore
           --configuration Release
           -p:TreatWarningsAsErrors=false

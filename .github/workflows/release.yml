@@ -20,14 +20,14 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Restore
-        run: dotnet restore BankTransfers.sln
+        run: dotnet restore SavranPay.sln
 
       - name: Build Release
-        run: dotnet build BankTransfers.sln --no-restore --configuration Release
+        run: dotnet build SavranPay.sln --no-restore --configuration Release
 
       - name: Run All Tests
         run: >
-          dotnet test BankTransfers.sln
+          dotnet test SavranPay.sln
           --no-build
           --configuration Release
           --logger "trx;LogFileName=all-results.trx"
@@ -35,7 +35,7 @@ jobs:
 
       - name: Publish API
         run: >
-          dotnet publish src/BankTransfers.Api/BankTransfers.Api.csproj
+          dotnet publish src/SavranPay.Api/SavranPay.Api.csproj
           --configuration Release
           --output ./publish/api
           --no-build
@@ -57,14 +57,14 @@ jobs:
             Банковский сервис перевода средств на .NET 8.
 
             ### Что включено
-            - Backend API (BankTransfers.Api)
+            - Backend API (SavranPay.Api)
             - Доменная модель, AML/антифрод, криптографическая защита
             - Веб-кабинет (wwwroot)
 
             ### Установка
             ```
             dotnet restore
-            dotnet run --project src/BankTransfers.Api
+            dotnet run --project src/SavranPay.Api
             ```
           draft: false
           prerelease: false
