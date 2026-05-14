@@ -10,3 +10,7 @@ coverage/
 *.trx
 *.log
 appsettings.Development.json
+node_modules/
+dist/
+frontend/**/dist/
+frontend/**/node_modules/
