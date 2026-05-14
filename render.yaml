@@ -25,10 +25,10 @@ services:
         value: "true"
       - key: Jwt__SigningKey
         generateValue: true
-    disks:
-      - name: savranpay-dataprotection
-        mountPath: /var/lib/savranpay/dataprotection-keys
-        sizeGB: 1
+    disk:
+      name: savranpay-dataprotection
+      mountPath: /var/lib/savranpay/dataprotection-keys
+      sizeGB: 1
 
   - type: worker
     name: savranpay-worker
@@ -44,4 +44,4 @@ services:
 
 databases:
   - name: savranpay-postgres
-    plan: starter
+    plan: free
