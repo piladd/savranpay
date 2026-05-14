@@ -49,10 +49,36 @@ const loginForm = ref({ login: 'client@savranpay.local', password: 'Client123!' 
 const busy = ref(false)
 const error = ref('')
 const lastChallenge = ref('')
+const recipientSearch = ref('')
 const selectedTransfer = ref<TransferView | null>(null)
 const dashboard = ref<DashboardView>({ ...emptyDashboard })
 const adminUsers = ref<AdminUserView[]>([])
 const decisionDetails = ref('Проверено вручную, замечания внесены в журнал аудита')
+const reservedTransferIds = ref<Set<string>>(new Set())
+
+const recipientDirectory = [
+  {
+    cardNumber: '2202200000000001',
+    name: 'Анна Смирнова',
+    accountNumber: '40817810000000000999',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+  {
+    cardNumber: '2202200000000002',
+    name: 'Петр Иванов',
+    accountNumber: '40817810000000000888',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+  {
+    cardNumber: '2202200000000003',
+    name: 'Мария Кузнецова',
+    accountNumber: '40817810000000000777',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+]
 
 const form = ref({
   fromAccountId: '',
@@ -68,6 +94,11 @@ const form = ref({
 
 const activeCabinet = computed(() => cabinets.find((cabinet) => cabinet.path === currentPath.value) ?? cabinets[0])
 const selectedAccount = computed(() => dashboard.value.accounts.find((account) => account.id === form.value.fromAccountId) ?? null)
+const recipientMatches = computed(() => {
+  const digits = recipientSearch.value.replace(/\D/g, '')
+  if (digits.length < 4) return []
+  return recipientDirectory.filter((item) => item.cardNumber.includes(digits)).slice(0, 4)
+})
 const pendingTransfers = computed(() =>
   dashboard.value.transfers.filter((transfer) => transfer.status === 'PendingClientConfirmation'),
 )
@@ -186,6 +217,8 @@ async function submitTransfer() {
     }
     dashboard.value.transfers = [transfer, ...dashboard.value.transfers]
     selectedTransfer.value = transfer
+    reservedTransferIds.value = new Set(reservedTransferIds.value).add(transfer.id)
+    adjustAccountBalance(transfer.fromAccountId, -transfer.amount.minorUnits, transfer.amount.minorUnits)
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось создать перевод.'
   } finally {
@@ -218,6 +251,13 @@ async function signAndConfirm(transferId: string) {
       2,
     )
 
+    const transfer = dashboard.value.transfers.find((item) => item.id === transferId)
+    if (transfer && reservedTransferIds.value.has(transferId)) {
+      adjustAccountBalance(transfer.fromAccountId, 0, -transfer.amount.minorUnits)
+      const next = new Set(reservedTransferIds.value)
+      next.delete(transferId)
+      reservedTransferIds.value = next
+    }
     markTransferStatus(transferId, 'Settled')
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось подтвердить перевод.'
@@ -240,7 +280,28 @@ async function disputeTransfer(transferId: string) {
 }
 
 function cancelTransfer(transferId: string) {
+  const transfer = dashboard.value.transfers.find((item) => item.id === transferId)
+  if (transfer && reservedTransferIds.value.has(transferId)) {
+    adjustAccountBalance(transfer.fromAccountId, transfer.amount.minorUnits, -transfer.amount.minorUnits)
+    const next = new Set(reservedTransferIds.value)
+    next.delete(transferId)
+    reservedTransferIds.value = next
+  }
   markTransferStatus(transferId, 'Cancelled')
+}
+
+function applyRecipient(recipient: (typeof recipientDirectory)[number]) {
+  recipientSearch.value = recipient.cardNumber
+  form.value.recipient.type = 'Card'
+  form.value.recipient.name = recipient.name
+  form.value.recipient.accountNumber = recipient.accountNumber
+  form.value.recipient.bankBic = recipient.bankBic
+}
+
+function applyRecipientBySearch() {
+  const digits = recipientSearch.value.replace(/\D/g, '')
+  const found = recipientDirectory.find((item) => item.cardNumber === digits)
+  if (found) applyRecipient(found)
 }
 
 function repeatTransfer(transfer: TransferView) {
@@ -383,16 +444,11 @@ function accountStatusLabel(status: string) {
 }
 
 function accountLabel(account: AccountView) {
-  return `${account.maskedNumber || maskAccount(account.number)} · ${money(account.availableBalance)}`
+  return `${account.number} · ${money(account.availableBalance)}`
 }
 
 function recipientDetails(transfer: TransferView) {
-  return `${maskAccount(transfer.recipient.accountNumber)} · БИК ${transfer.recipient.bankBic}`
-}
-
-function maskAccount(accountNumber: string) {
-  if (accountNumber.length < 8) return accountNumber
-  return `${accountNumber.slice(0, 4)} **** **** ${accountNumber.slice(-4)}`
+  return `${transfer.recipient.accountNumber} · БИК ${transfer.recipient.bankBic}`
 }
 
 function riskSummary(transfer: TransferView) {
@@ -422,6 +478,23 @@ function markTransferStatus(transferId: string, status: string) {
     transfer.id === transferId ? { ...transfer, status, updatedAt: new Date().toISOString() } : transfer,
   )
   selectedTransfer.value = dashboard.value.transfers.find((transfer) => transfer.id === transferId) ?? selectedTransfer.value
+}
+
+function adjustAccountBalance(accountId: string, availableDelta: number, reservedDelta: number) {
+  dashboard.value.accounts = dashboard.value.accounts.map((account) => {
+    if (account.id !== accountId) return account
+    return {
+      ...account,
+      availableBalance: {
+        ...account.availableBalance,
+        minorUnits: Math.max(0, account.availableBalance.minorUnits + availableDelta),
+      },
+      reservedBalance: {
+        ...account.reservedBalance,
+        minorUnits: Math.max(0, account.reservedBalance.minorUnits + reservedDelta),
+      },
+    }
+  })
 }
 
 function transferTimeline(transfer: TransferView) {
@@ -552,7 +625,7 @@ function transferTimeline(transfer: TransferView) {
           <div class="accounts">
             <div v-for="account in dashboard.accounts" :key="account.id" class="account">
               <span class="readonly-label">Счет</span>
-              <strong class="account-number">{{ account.maskedNumber || maskAccount(account.number) }}</strong>
+              <strong class="account-number">{{ account.number }}</strong>
               <div class="readonly-grid">
                 <span>Валюта</span><b>{{ account.availableBalance.currency }}</b>
                 <span>Доступно</span><b>{{ money(account.availableBalance) }}</b>
@@ -592,6 +665,28 @@ function transferTimeline(transfer: TransferView) {
                 <option value="Sbp">СБП</option>
               </select>
             </label>
+            <label class="recipient-search">
+              Поиск по номеру карты
+              <input
+                v-model="recipientSearch"
+                inputmode="numeric"
+                maxlength="19"
+                placeholder="Например 2202200000000001"
+                @input="applyRecipientBySearch"
+              />
+              <div v-if="recipientMatches.length" class="recipient-suggestions">
+                <button
+                  v-for="recipient in recipientMatches"
+                  :key="recipient.cardNumber"
+                  class="recipient-suggestion"
+                  type="button"
+                  @click="applyRecipient(recipient)"
+                >
+                  <strong>{{ recipient.name }}</strong>
+                  <span>{{ recipient.cardNumber }} · {{ recipient.bankName }}</span>
+                </button>
+              </div>
+            </label>
             <label>Получатель <input v-model="form.recipient.name" required /></label>
             <label>Счет получателя <input v-model="form.recipient.accountNumber" required maxlength="20" /></label>
             <label>БИК банка <input v-model="form.recipient.bankBic" required maxlength="9" /></label>
@@ -618,7 +713,7 @@ function transferTimeline(transfer: TransferView) {
                 <div class="detail-line"><b>Получатель</b><span>{{ selectedTransfer.recipient.name }}</span></div>
                 <div class="detail-line"><b>Счет получателя</b><span>{{ selectedTransfer.recipient.accountNumber }}</span></div>
                 <div class="detail-line"><b>БИК</b><span>{{ selectedTransfer.recipient.bankBic }}</span></div>
-                <div class="detail-line"><b>Счет списания</b><span>{{ selectedTransferAccount?.maskedNumber || maskAccount(selectedTransferAccount?.number || '') }}</span></div>
+                <div class="detail-line"><b>Счет списания</b><span>{{ selectedTransferAccount?.number }}</span></div>
                 <div class="detail-line"><b>Сумма</b><span>{{ money(selectedTransfer.amount) }}</span></div>
                 <div class="detail-line"><b>Комиссия</b><span>{{ minor(0, selectedTransfer.amount.currency) }}</span></div>
                 <div class="detail-line"><b>Итого</b><span>{{ money(selectedTransfer.amount) }}</span></div>
@@ -650,7 +745,7 @@ function transferTimeline(transfer: TransferView) {
             <div v-for="transfer in dashboard.transfers" :key="transfer.id" class="row">
               <span>{{ date(transfer.createdAt) }}</span>
               <span>{{ transfer.recipient.name }}</span>
-              <span>{{ maskAccount(transfer.recipient.accountNumber) }}</span>
+              <span>{{ transfer.recipient.accountNumber }}</span>
               <strong>{{ money(transfer.amount) }}</strong>
               <span class="badge" :class="statusClass(transfer.status)">{{ statusLabel(transfer.status) }}</span>
               <span>{{ transfer.purpose }}</span>
@@ -683,7 +778,7 @@ function transferTimeline(transfer: TransferView) {
               <div class="readonly-grid">
                 <span>ФИО клиента</span><b>{{ dashboard.customer?.fullName }}</b>
                 <span>Customer ID</span><b>{{ selectedTransfer.customerId }}</b>
-                <span>Счет списания</span><b>{{ selectedTransferAccount?.maskedNumber || maskAccount(selectedTransferAccount?.number || '') }}</b>
+                <span>Счет списания</span><b>{{ selectedTransferAccount?.number }}</b>
               </div>
             </section>
             <section>

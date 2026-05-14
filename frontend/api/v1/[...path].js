@@ -11,7 +11,7 @@ const demoAccount = {
   id: 'demo-account-1',
   customerId: 'demo-customer',
   number: '40817810000000000001',
-  maskedNumber: '4081 **** **** 0001',
+  maskedNumber: '40817810000000000001',
   status: 'Active',
   availableBalance: { minorUnits: 125000000, currency: 'RUB' },
   reservedBalance: { minorUnits: 0, currency: 'RUB' },
