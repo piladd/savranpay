@@ -4,6 +4,48 @@ info:
   version: 0.1.0
   description: Учебная спецификация API сервиса банковских переводов.
 paths:
+  /api/v1/auth/login:
+    post:
+      summary: Login with password and issue JWT pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Access token and refresh token issued
+        "401":
+          description: Invalid credentials
+  /api/v1/auth/refresh:
+    post:
+      summary: Rotate refresh token and issue a new JWT pair
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshTokenRequest"
+      responses:
+        "200":
+          description: Token pair refreshed
+        "401":
+          description: Refresh token is invalid or expired
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Application process is alive
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        "200":
+          description: Application dependencies are ready
+        "503":
+          description: Dependency is unavailable
   /api/v1/transfers:
     post:
       summary: Создать распоряжение на перевод
@@ -78,7 +120,32 @@ paths:
         "404":
           description: Перевод не найден
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
+    LoginRequest:
+      type: object
+      required:
+        - login
+        - password
+      properties:
+        login:
+          type: string
+          example: client@savranpay.local
+        password:
+          type: string
+          format: password
+          example: Client123!
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
     CreateTransferRequest:
       type: object
       required:

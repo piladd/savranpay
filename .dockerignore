@@ -1,0 +1,6 @@
+.git
+.idea
+**/bin
+**/obj
+frontend/savranpay-web/node_modules
+frontend/savranpay-web/dist

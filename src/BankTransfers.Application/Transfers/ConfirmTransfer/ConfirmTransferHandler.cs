@@ -43,6 +43,7 @@ public sealed class ConfirmTransferHandler
         if (!signatureValid)
         {
             transfer.Fail(_clock.UtcNow);
+            await _transfers.AddAsync(transfer, cancellationToken);
             await _audit.WriteAsync(transfer.Id, "ConfirmationFailed", "Invalid transfer signature.", cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             return new ConfirmTransferResult(transfer.Id, transfer.Status);
@@ -54,6 +55,7 @@ public sealed class ConfirmTransferHandler
         await _execution.ExecuteAsync(transfer, cancellationToken);
         transfer.Settle(_clock.UtcNow);
 
+        await _transfers.AddAsync(transfer, cancellationToken);
         await _audit.WriteAsync(transfer.Id, "TransferConfirmed", "Client confirmation accepted.", cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 

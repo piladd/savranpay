@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-savranpay}
+      POSTGRES_USER: ${POSTGRES_USER:-savranpay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    ports:
+      - "5432:5432"
+    volumes:
+      - savranpay_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-savranpay} -d ${POSTGRES_DB:-savranpay}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/BankTransfers.Api/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      DISABLE_HTTPS_REDIRECTION: "true"
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-savranpay};Username=${POSTGRES_USER:-savranpay};Password=${POSTGRES_PASSWORD:-change-me}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-change-this-production-key-at-least-32-bytes-long}
+      Jwt__RequireAuthorization: ${JWT_REQUIRE_AUTHORIZATION:-true}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: .
+      dockerfile: src/BankTransfers.Workers/Dockerfile
+    environment:
+      ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-savranpay};Username=${POSTGRES_USER:-savranpay};Password=${POSTGRES_PASSWORD:-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: frontend/savranpay-web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  savranpay_postgres:

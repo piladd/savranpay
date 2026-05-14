@@ -21,6 +21,22 @@ public sealed class Account
     public Money ReservedBalance { get; private set; }
     public AccountStatus Status { get; private set; }
 
+    public static Account Rehydrate(
+        Guid id,
+        Guid customerId,
+        string number,
+        Money availableBalance,
+        Money reservedBalance,
+        AccountStatus status)
+    {
+        var account = new Account(id, customerId, number, availableBalance, status)
+        {
+            ReservedBalance = reservedBalance
+        };
+
+        return account;
+    }
+
     public bool CanDebit(Money amount)
     {
         return Status == AccountStatus.Active

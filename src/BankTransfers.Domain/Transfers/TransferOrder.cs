@@ -80,6 +80,35 @@ public sealed class TransferOrder : Entity
         return transfer;
     }
 
+    public static TransferOrder Rehydrate(
+        Guid id,
+        Guid customerId,
+        Guid fromAccountId,
+        Recipient recipient,
+        Money amount,
+        string purpose,
+        IdempotencyKey idempotencyKey,
+        TransferStatus status,
+        DateTimeOffset createdAt,
+        DateTimeOffset? updatedAt)
+    {
+        var transfer = new TransferOrder(
+            id,
+            customerId,
+            fromAccountId,
+            recipient,
+            amount,
+            purpose,
+            idempotencyKey,
+            createdAt)
+        {
+            Status = status,
+            UpdatedAt = updatedAt
+        };
+
+        return transfer;
+    }
+
     public void SubmitForValidation(DateTimeOffset now)
     {
         MoveTo(TransferStatus.Draft, TransferStatus.PendingValidation, now);

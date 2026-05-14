@@ -3,27 +3,32 @@ import { computed, onMounted, ref } from 'vue'
 import {
   confirmTransfer,
   createTransfer,
+  getAccessToken,
   getConfirmationChallenge,
   getDashboard,
+  login,
+  logout,
   reportUnauthorizedClaim,
   type AccountView,
+  type AuthUser,
   type DashboardView,
   type TransferView,
 } from './api/savranpayApi'
 
 const demoSecret = 'savranpay-demo-secret-change-in-production'
 
-const tabs = [
-  { id: 'overview', title: 'Обзор', icon: '▦' },
-  { id: 'transfer', title: 'Перевод', icon: '→' },
-  { id: 'transactions', title: 'Транзакции', icon: '≡' },
-  { id: 'risk', title: 'Риски', icon: '◇' },
-  { id: 'ledger', title: 'Ledger и аудит', icon: '✓' },
+const cabinets = [
+  { path: '/cabinet/client', title: 'Клиент', role: 'Customer', icon: '◫' },
+  { path: '/cabinet/support', title: 'Поддержка', role: 'SupportOperator', icon: '☎' },
+  { path: '/cabinet/aml', title: 'AML', role: 'AmlOfficer', icon: '◎' },
+  { path: '/cabinet/fraud', title: 'Антифрод', role: 'FraudOfficer', icon: '◇' },
+  { path: '/cabinet/admin', title: 'Админ', role: 'Admin', icon: '⚙' },
+  { path: '/cabinet/audit', title: 'Аудит', role: 'Auditor', icon: '✓' },
 ] as const
 
-type TabId = (typeof tabs)[number]['id']
-
-const activeTab = ref<TabId>('overview')
+const currentPath = ref(normalizePath(window.location.pathname))
+const user = ref<AuthUser | null>(null)
+const loginForm = ref({ login: 'client@savranpay.local', password: 'Client123!' })
 const busy = ref(false)
 const error = ref('')
 const lastChallenge = ref('')
@@ -53,11 +58,40 @@ const form = ref({
   purpose: 'Перевод собственных средств',
 })
 
+const activeCabinet = computed(() => cabinets.find((cabinet) => cabinet.path === currentPath.value) ?? cabinets[0])
 const pendingTransfers = computed(() =>
   dashboard.value.transfers.filter((transfer) => transfer.status === 'PendingClientConfirmation'),
 )
+const canUseCurrentCabinet = computed(() => {
+  if (!user.value) return !getAccessToken()
+  return user.value.roles.includes(activeCabinet.value.role) || user.value.roles.includes('Admin')
+})
 
-onMounted(loadDashboard)
+onMounted(async () => {
+  window.addEventListener('popstate', () => {
+    currentPath.value = normalizePath(window.location.pathname)
+  })
+
+  if (getAccessToken()) {
+    await loadDashboard()
+  }
+})
+
+async function submitLogin() {
+  busy.value = true
+  error.value = ''
+  try {
+    const result = await login(loginForm.value.login, loginForm.value.password)
+    user.value = result.user
+    const cabinet = cabinets.find((item) => result.user.roles.includes(item.role)) ?? cabinets[0]
+    navigate(cabinet.path)
+    await loadDashboard()
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Не удалось войти.'
+  } finally {
+    busy.value = false
+  }
+}
 
 async function loadDashboard() {
   error.value = ''
@@ -89,7 +123,6 @@ async function submitTransfer() {
 
     await loadDashboard()
     selectedTransfer.value = dashboard.value.transfers.find((transfer) => transfer.id === result.transferId) ?? null
-    activeTab.value = 'transfer'
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось создать перевод.'
   } finally {
@@ -123,7 +156,6 @@ async function signAndConfirm(transferId: string) {
     )
 
     await loadDashboard()
-    selectedTransfer.value = dashboard.value.transfers.find((transfer) => transfer.id === transferId) ?? null
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось подтвердить перевод.'
   } finally {
@@ -157,10 +189,25 @@ async function signPayload(payload: string) {
   return arrayBufferToBase64(signature)
 }
 
+function navigate(path: string) {
+  currentPath.value = normalizePath(path)
+  window.history.pushState({}, '', currentPath.value)
+}
+
+function signOut() {
+  logout()
+  user.value = null
+  dashboard.value.transfers = []
+  navigate('/cabinet/client')
+}
+
 function selectTransfer(transfer: TransferView) {
   selectedTransfer.value = transfer
-  activeTab.value = 'transfer'
   lastChallenge.value = ''
+}
+
+function normalizePath(path: string) {
+  return cabinets.some((cabinet) => cabinet.path === path) ? path : '/cabinet/client'
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
@@ -208,184 +255,198 @@ function accountLabel(account: AccountView) {
       <div class="brand-mark">SP</div>
       <div>
         <strong>SavranPay</strong>
-        <span>Защищенный кабинет</span>
+        <span>Ролевые кабинеты</span>
       </div>
     </div>
 
     <nav>
-      <button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">
-        <span>{{ tab.icon }}</span>{{ tab.title }}
+      <button
+        v-for="cabinet in cabinets"
+        :key="cabinet.path"
+        :class="{ active: currentPath === cabinet.path }"
+        @click="navigate(cabinet.path)"
+      >
+        <span>{{ cabinet.icon }}</span>{{ cabinet.title }}
       </button>
     </nav>
 
     <div class="security-note">
-      <strong>HTTPS + WebCrypto</strong>
-      <span>Подтверждение подписывает сумму, получателя, назначение, nonce и время.</span>
+      <strong>JWT + refresh token</strong>
+      <span>Доступ к production-режиму выдается по логину, паролю и роли пользователя.</span>
     </div>
   </aside>
 
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">SavranPay · цифровой сервис переводов</p>
-        <h1>Личный кабинет</h1>
+        <p class="eyebrow">SavranPay · {{ activeCabinet.role }}</p>
+        <h1>/cabinet/{{ currentPath.split('/').at(-1) }}</h1>
       </div>
-      <div v-if="dashboard.customer" class="profile">
-        <span>{{ dashboard.customer.identificationStatus }}</span>
-        <strong>{{ dashboard.customer.fullName }}</strong>
+      <div v-if="user || dashboard.customer" class="profile">
+        <span>{{ user?.roles.join(', ') || dashboard.customer?.identificationStatus }}</span>
+        <strong>{{ user?.fullName || dashboard.customer?.fullName }}</strong>
+        <button v-if="user" class="ghost" @click="signOut">Выйти</button>
       </div>
     </header>
 
     <section v-if="error" class="alert">{{ error }}</section>
 
-    <section v-show="activeTab === 'overview'" class="grid overview-grid">
-      <article class="panel balance-panel">
+    <section v-if="!getAccessToken()" class="grid two">
+      <form class="panel" @submit.prevent="submitLogin">
         <div class="panel-head">
-          <span>Счета</span>
-          <button class="ghost" @click="loadDashboard">Обновить</button>
+          <span>Вход</span>
+          <small>client@savranpay.local / Client123!</small>
         </div>
-        <div class="accounts">
-          <div v-for="account in dashboard.accounts" :key="account.id" class="account">
-            <span>{{ account.maskedNumber }}</span>
-            <strong>{{ money(account.availableBalance) }}</strong>
-            <small>{{ account.status }}</small>
-          </div>
-        </div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-head"><span>Контроль</span></div>
-        <div class="metric-list">
-          <div><strong>{{ dashboard.transfers.length }}</strong><span>переводов</span></div>
-          <div><strong>{{ dashboard.riskChecks.length }}</strong><span>AML/антифрод</span></div>
-          <div><strong>{{ dashboard.auditEvents.length }}</strong><span>событий аудита</span></div>
-        </div>
-      </article>
-
-      <article class="panel wide">
-        <div class="panel-head"><span>Соответствие ТЗ</span></div>
-        <div class="chips">
-          <span v-for="item in dashboard.compliance" :key="item">{{ item }}</span>
-        </div>
-      </article>
-    </section>
-
-    <section v-show="activeTab === 'transfer'" class="grid transfer-grid">
-      <form class="panel transfer-form" @submit.prevent="submitTransfer">
-        <div class="panel-head">
-          <span>Новый перевод</span>
-          <small>Idempotency-Key создается автоматически</small>
-        </div>
-
-        <label>
-          Счет списания
-          <select v-model="form.fromAccountId" required>
-            <option v-for="account in dashboard.accounts" :key="account.id" :value="account.id">
-              {{ accountLabel(account) }}
-            </option>
-          </select>
-        </label>
-
-        <label>Счет получателя <input v-model="form.recipient.accountNumber" required maxlength="20" /></label>
-        <label>БИК банка получателя <input v-model="form.recipient.bankBic" required maxlength="9" /></label>
-        <label>Получатель <input v-model="form.recipient.name" required /></label>
-        <label>Сумма, RUB <input v-model.number="form.amountRub" type="number" min="1" step="1" required /></label>
-        <label>Назначение платежа <input v-model="form.purpose" required /></label>
-
-        <button class="primary" type="submit" :disabled="busy">Создать распоряжение</button>
+        <label>Логин <input v-model="loginForm.login" autocomplete="username" required /></label>
+        <label>Пароль <input v-model="loginForm.password" autocomplete="current-password" type="password" required /></label>
+        <button class="primary" type="submit" :disabled="busy">Войти</button>
       </form>
-
-      <article class="panel confirmation">
-        <div class="panel-head">
-          <span>Криптографическое подтверждение</span>
-          <small>HMAC-SHA-256, nonce, timestamp</small>
-        </div>
-
-        <template v-if="selectedTransfer">
-          <div class="confirm-card">
-            <strong>{{ selectedTransfer.recipient.name }}</strong>
-            <span>{{ money(selectedTransfer.amount) }} · {{ selectedTransfer.status }}</span>
-            <small>{{ selectedTransfer.recipient.accountNumber }}</small>
-          </div>
-          <button
-            class="primary"
-            :disabled="busy || selectedTransfer.status !== 'PendingClientConfirmation'"
-            @click="signAndConfirm(selectedTransfer.id)"
-          >
-            Подписать и подтвердить через WebCrypto
-          </button>
-          <button class="ghost" :disabled="busy" @click="disputeTransfer(selectedTransfer.id)">
-            Заявить об операции без согласия
-          </button>
-          <pre v-if="lastChallenge">{{ lastChallenge }}</pre>
-        </template>
-        <p v-else class="muted">Создайте перевод или выберите ожидающий подтверждения в журнале.</p>
-      </article>
-    </section>
-
-    <section v-show="activeTab === 'transactions'" class="panel">
-      <div class="panel-head">
-        <span>Транзакции</span>
-        <small>Жизненный цикл перевода</small>
-      </div>
-      <div class="table">
-        <div class="row header">
-          <span>Получатель</span><span>Сумма</span><span>Статус</span><span>Дата</span><span></span>
-        </div>
-        <div v-for="transfer in dashboard.transfers" :key="transfer.id" class="row">
-          <span>{{ transfer.recipient.name }}</span>
-          <strong>{{ money(transfer.amount) }}</strong>
-          <span class="badge" :class="statusClass(transfer.status)">{{ transfer.status }}</span>
-          <span>{{ date(transfer.createdAt) }}</span>
-          <button class="ghost" @click="selectTransfer(transfer)">Открыть</button>
-        </div>
-      </div>
-    </section>
-
-    <section v-show="activeTab === 'risk'" class="grid two">
       <article class="panel">
-        <div class="panel-head"><span>AML и антифрод</span></div>
-        <div class="timeline">
-          <div v-for="check in dashboard.riskChecks" :key="check.id">
-            <strong>{{ check.checkType }} · {{ check.decision }}</strong>
-            <span>{{ check.details }}</span>
-            <small>{{ date(check.createdAt) }}</small>
-          </div>
-        </div>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><span>Лимиты</span></div>
-        <div class="limits">
-          <div v-for="limit in dashboard.limits" :key="limit.name">
-            <span>{{ limit.name }}</span>
-            <strong>{{ limit.value }}</strong>
-          </div>
+        <div class="panel-head"><span>Роли</span></div>
+        <div class="chips">
+          <span v-for="cabinet in cabinets" :key="cabinet.role">{{ cabinet.role }}</span>
         </div>
       </article>
     </section>
 
-    <section v-show="activeTab === 'ledger'" class="grid two">
-      <article class="panel">
-        <div class="panel-head"><span>Ledger</span></div>
-        <div class="table compact">
-          <div class="row header"><span>Счет</span><span>Дебет</span><span>Кредит</span></div>
-          <div v-for="entry in dashboard.ledger" :key="entry.id" class="row">
-            <span>{{ entry.accountNumber }}</span>
-            <span>{{ minor(entry.debitMinorUnits, entry.currency) }}</span>
-            <span>{{ minor(entry.creditMinorUnits, entry.currency) }}</span>
-          </div>
-        </div>
-      </article>
-      <article class="panel">
-        <div class="panel-head"><span>Аудит</span></div>
-        <div class="timeline">
-          <div v-for="event in dashboard.auditEvents" :key="event.id">
-            <strong>{{ event.eventType }}</strong>
-            <span>{{ event.message }}</span>
-            <small>{{ date(event.createdAt) }}</small>
-          </div>
-        </div>
-      </article>
+    <section v-else-if="!canUseCurrentCabinet" class="alert">
+      У текущего пользователя нет роли для этого кабинета.
     </section>
+
+    <template v-else>
+      <section v-if="currentPath === '/cabinet/client'" class="grid transfer-grid">
+        <form class="panel transfer-form" @submit.prevent="submitTransfer">
+          <div class="panel-head">
+            <span>Новый перевод</span>
+            <button class="ghost" type="button" @click="loadDashboard">Обновить</button>
+          </div>
+
+          <label>
+            Счет списания
+            <select v-model="form.fromAccountId" required>
+              <option v-for="account in dashboard.accounts" :key="account.id" :value="account.id">
+                {{ accountLabel(account) }}
+              </option>
+            </select>
+          </label>
+
+          <label>Счет получателя <input v-model="form.recipient.accountNumber" required maxlength="20" /></label>
+          <label>БИК банка получателя <input v-model="form.recipient.bankBic" required maxlength="9" /></label>
+          <label>Получатель <input v-model="form.recipient.name" required /></label>
+          <label>Сумма, RUB <input v-model.number="form.amountRub" type="number" min="1" step="1" required /></label>
+          <label>Назначение платежа <input v-model="form.purpose" required /></label>
+
+          <button class="primary" type="submit" :disabled="busy">Создать распоряжение</button>
+        </form>
+
+        <article class="panel confirmation">
+          <div class="panel-head">
+            <span>Подтверждение</span>
+            <small>WebCrypto demo, HSM/KMS в production</small>
+          </div>
+
+          <template v-if="selectedTransfer">
+            <div class="confirm-card">
+              <strong>{{ selectedTransfer.recipient.name }}</strong>
+              <span>{{ money(selectedTransfer.amount) }} · {{ selectedTransfer.status }}</span>
+              <small>{{ selectedTransfer.recipient.accountNumber }}</small>
+            </div>
+            <button
+              class="primary"
+              :disabled="busy || selectedTransfer.status !== 'PendingClientConfirmation'"
+              @click="signAndConfirm(selectedTransfer.id)"
+            >
+              Подписать и подтвердить
+            </button>
+            <button class="ghost" :disabled="busy" @click="disputeTransfer(selectedTransfer.id)">
+              Заявить об операции без согласия
+            </button>
+            <pre v-if="lastChallenge">{{ lastChallenge }}</pre>
+          </template>
+          <p v-else class="muted">Создайте перевод или выберите ожидающий подтверждения.</p>
+        </article>
+      </section>
+
+      <section v-if="currentPath === '/cabinet/support'" class="panel">
+        <div class="panel-head"><span>Обращения и операции</span></div>
+        <div class="table">
+          <div class="row header"><span>Получатель</span><span>Сумма</span><span>Статус</span><span>Дата</span><span></span></div>
+          <div v-for="transfer in dashboard.transfers" :key="transfer.id" class="row">
+            <span>{{ transfer.recipient.name }}</span>
+            <strong>{{ money(transfer.amount) }}</strong>
+            <span class="badge" :class="statusClass(transfer.status)">{{ transfer.status }}</span>
+            <span>{{ date(transfer.createdAt) }}</span>
+            <button class="ghost" @click="selectTransfer(transfer)">Открыть</button>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="currentPath === '/cabinet/aml' || currentPath === '/cabinet/fraud'" class="grid two">
+        <article class="panel">
+          <div class="panel-head"><span>Risk checks</span></div>
+          <div class="timeline">
+            <div v-for="check in dashboard.riskChecks" :key="check.id">
+              <strong>{{ check.checkType }} · {{ check.decision }}</strong>
+              <span>{{ check.details }}</span>
+              <small>{{ date(check.createdAt) }}</small>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><span>Лимиты</span></div>
+          <div class="limits">
+            <div v-for="limit in dashboard.limits" :key="limit.name">
+              <span>{{ limit.name }}</span>
+              <strong>{{ limit.value }}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="currentPath === '/cabinet/admin'" class="grid overview-grid">
+        <article class="panel">
+          <div class="panel-head"><span>Счета</span></div>
+          <div class="accounts">
+            <div v-for="account in dashboard.accounts" :key="account.id" class="account">
+              <span>{{ account.maskedNumber }}</span>
+              <strong>{{ money(account.availableBalance) }}</strong>
+              <small>{{ account.status }}</small>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><span>Контроль</span></div>
+          <div class="metric-list">
+            <div><strong>{{ dashboard.transfers.length }}</strong><span>переводов</span></div>
+            <div><strong>{{ dashboard.auditEvents.length }}</strong><span>событий аудита</span></div>
+            <div><strong>{{ dashboard.notifications.length }}</strong><span>уведомлений</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section v-if="currentPath === '/cabinet/audit'" class="grid two">
+        <article class="panel">
+          <div class="panel-head"><span>Ledger</span></div>
+          <div class="table compact">
+            <div class="row header"><span>Счет</span><span>Дебет</span><span>Кредит</span></div>
+            <div v-for="entry in dashboard.ledger" :key="entry.id" class="row">
+              <span>{{ entry.accountNumber }}</span>
+              <span>{{ minor(entry.debitMinorUnits, entry.currency) }}</span>
+              <span>{{ minor(entry.creditMinorUnits, entry.currency) }}</span>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><span>Аудит</span></div>
+          <div class="timeline">
+            <div v-for="event in dashboard.auditEvents" :key="event.id">
+              <strong>{{ event.eventType }}</strong>
+              <span>{{ event.message }}</span>
+              <small>{{ date(event.createdAt) }}</small>
+            </div>
+          </div>
+        </article>
+      </section>
+    </template>
   </main>
 </template>
