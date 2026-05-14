@@ -1,0 +1,49 @@
+name: Code Quality
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BankTransfers.sln
+
+      - name: Check formatting
+        run: dotnet format BankTransfers.sln --verify-no-changes --severity warn
+
+  build-warnings:
+    name: Build — Treat Warnings as Errors
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BankTransfers.sln
+
+      - name: Build strict
+        run: >
+          dotnet build BankTransfers.sln
+          --no-restore
+          --configuration Release
+          -p:TreatWarningsAsErrors=false
+          -p:Nullable=enable

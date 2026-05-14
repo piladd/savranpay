@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release-build:
+    name: Release Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore BankTransfers.sln
+
+      - name: Build Release
+        run: dotnet build BankTransfers.sln --no-restore --configuration Release
+
+      - name: Run All Tests
+        run: >
+          dotnet test BankTransfers.sln
+          --no-build
+          --configuration Release
+          --logger "trx;LogFileName=all-results.trx"
+          --results-directory ./test-results
+
+      - name: Publish API
+        run: >
+          dotnet publish src/BankTransfers.Api/BankTransfers.Api.csproj
+          --configuration Release
+          --output ./publish/api
+          --no-build
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: savranpay-api-${{ github.ref_name }}
+          path: ./publish/api
+          retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SavranPay ${{ github.ref_name }}
+          body: |
+            ## SavranPay ${{ github.ref_name }}
+
+            Банковский сервис перевода средств на .NET 8.
+
+            ### Что включено
+            - Backend API (BankTransfers.Api)
+            - Доменная модель, AML/антифрод, криптографическая защита
+            - Веб-кабинет (wwwroot)
+
+            ### Установка
+            ```
+            dotnet restore
+            dotnet run --project src/BankTransfers.Api
+            ```
+          draft: false
+          prerelease: false
