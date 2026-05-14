@@ -22,13 +22,15 @@ services:
       context: .
       dockerfile: src/SavranPay.Api/Dockerfile
     environment:
-      ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTP_PORTS: 8080
       DISABLE_HTTPS_REDIRECTION: "true"
       ConnectionStrings__Postgres: Host=postgres;Port=5432;Database=${POSTGRES_DB:-savranpay};Username=${POSTGRES_USER:-savranpay};Password=${POSTGRES_PASSWORD:-change-me}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:-change-this-production-key-at-least-32-bytes-long}
       Jwt__RequireAuthorization: ${JWT_REQUIRE_AUTHORIZATION:-true}
     ports:
       - "8080:8080"
+    volumes:
+      - savranpay_dataprotection:/var/lib/savranpay/dataprotection-keys
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,3 +66,4 @@ services:
 
 volumes:
   savranpay_postgres:
+  savranpay_dataprotection:

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://localhost:5001'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const ACCESS_TOKEN_KEY = 'savranpay.accessToken'
 const REFRESH_TOKEN_KEY = 'savranpay.refreshToken'
 
@@ -100,6 +100,18 @@ export type AuthUser = {
   roles: string[]
 }
 
+export type AdminUserView = {
+  id: string
+  login: string
+  fullName: string
+  email: string
+  phone: string
+  customerId?: string
+  isActive: boolean
+  createdAt: string
+  roles: string[]
+}
+
 export type LoginResult = {
   accessToken: string
   refreshToken: string
@@ -154,6 +166,10 @@ export async function login(loginName: string, password: string) {
   localStorage.setItem(ACCESS_TOKEN_KEY, result.accessToken)
   localStorage.setItem(REFRESH_TOKEN_KEY, result.refreshToken)
   return result
+}
+
+export async function getCurrentUser() {
+  return request<AuthUser>('/api/v1/auth/me')
 }
 
 export async function logout() {
@@ -216,6 +232,30 @@ export async function reportUnauthorizedClaim(transferId: string) {
       description: 'Операция была замечена после уведомления',
       contactPhone: '+79990000000',
     }),
+  })
+}
+
+export async function getAdminUsers() {
+  return request<AdminUserView[]>('/api/v1/admin/users')
+}
+
+export async function setAdminUserActive(userId: string, isActive: boolean) {
+  return request(`/api/v1/admin/users/${userId}/${isActive ? 'unblock' : 'block'}`, {
+    method: 'POST',
+    headers: {
+      'X-Request-Id': crypto.randomUUID(),
+    },
+  })
+}
+
+export async function recordRiskDecision(kind: 'aml' | 'fraud', transferId: string, decision: string, details: string) {
+  return request(`/api/v1/${kind}/transfers/${transferId}/decision`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({ decision, details }),
   })
 }
 

@@ -1,16 +1,22 @@
 services:
   - type: web
-    name: savranpay-backend
+    name: savranpay
     runtime: docker
     dockerfilePath: ./src/SavranPay.Api/Dockerfile
     dockerContext: .
     plan: starter
     healthCheckPath: /health/ready
     envVars:
-      - key: ASPNETCORE_URLS
-        value: http://+:8080
+      - key: ASPNETCORE_HTTP_PORTS
+        value: 8080
       - key: DISABLE_HTTPS_REDIRECTION
         value: "true"
+      - key: DataProtection__KeysPath
+        value: /var/lib/savranpay/dataprotection-keys
+      - key: Cors__AllowedOrigins__0
+        value: https://savranpay.onrender.com
+      - key: Cors__AllowedOrigins__1
+        value: https://savranpay.netlify.app
       - key: ConnectionStrings__Postgres
         fromDatabase:
           name: savranpay-postgres
@@ -19,6 +25,10 @@ services:
         value: "true"
       - key: Jwt__SigningKey
         generateValue: true
+    disks:
+      - name: savranpay-dataprotection
+        mountPath: /var/lib/savranpay/dataprotection-keys
+        sizeGB: 1
 
   - type: worker
     name: savranpay-worker

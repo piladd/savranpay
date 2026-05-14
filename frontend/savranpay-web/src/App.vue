@@ -4,12 +4,17 @@ import {
   confirmTransfer,
   createTransfer,
   getAccessToken,
+  getAdminUsers,
   getConfirmationChallenge,
+  getCurrentUser,
   getDashboard,
   login,
   logout,
+  recordRiskDecision,
   reportUnauthorizedClaim,
+  setAdminUserActive,
   type AccountView,
+  type AdminUserView,
   type AuthUser,
   type DashboardView,
   type TransferView,
@@ -18,23 +23,15 @@ import {
 const demoSecret = 'savranpay-demo-secret-change-in-production'
 
 const cabinets = [
-  { path: '/cabinet/client', title: 'Клиент', role: 'Customer', icon: '◫' },
-  { path: '/cabinet/support', title: 'Поддержка', role: 'SupportOperator', icon: '☎' },
-  { path: '/cabinet/aml', title: 'AML', role: 'AmlOfficer', icon: '◎' },
-  { path: '/cabinet/fraud', title: 'Антифрод', role: 'FraudOfficer', icon: '◇' },
-  { path: '/cabinet/admin', title: 'Админ', role: 'Admin', icon: '⚙' },
-  { path: '/cabinet/audit', title: 'Аудит', role: 'Auditor', icon: '✓' },
+  { path: '/cabinet/client', title: 'Клиент', role: 'Customer', icon: 'К' },
+  { path: '/cabinet/support', title: 'Поддержка', role: 'SupportOperator', icon: 'S' },
+  { path: '/cabinet/aml', title: 'AML', role: 'AmlOfficer', icon: 'A' },
+  { path: '/cabinet/fraud', title: 'Антифрод', role: 'FraudOfficer', icon: 'F' },
+  { path: '/cabinet/admin', title: 'Админ', role: 'Admin', icon: 'M' },
+  { path: '/cabinet/audit', title: 'Аудит', role: 'Auditor', icon: 'R' },
 ] as const
 
-const currentPath = ref(normalizePath(window.location.pathname))
-const user = ref<AuthUser | null>(null)
-const loginForm = ref({ login: 'client@savranpay.local', password: 'Client123!' })
-const busy = ref(false)
-const error = ref('')
-const lastChallenge = ref('')
-const selectedTransfer = ref<TransferView | null>(null)
-
-const dashboard = ref<DashboardView>({
+const emptyDashboard: DashboardView = {
   customer: null,
   accounts: [],
   transfers: [],
@@ -44,7 +41,18 @@ const dashboard = ref<DashboardView>({
   notifications: [],
   limits: [],
   compliance: [],
-})
+}
+
+const currentPath = ref(normalizePath(window.location.pathname))
+const user = ref<AuthUser | null>(null)
+const loginForm = ref({ login: 'client@savranpay.local', password: 'Client123!' })
+const busy = ref(false)
+const error = ref('')
+const lastChallenge = ref('')
+const selectedTransfer = ref<TransferView | null>(null)
+const dashboard = ref<DashboardView>({ ...emptyDashboard })
+const adminUsers = ref<AdminUserView[]>([])
+const decisionDetails = ref('Проверено вручную, замечания внесены в журнал аудита')
 
 const form = ref({
   fromAccountId: '',
@@ -66,14 +74,26 @@ const canUseCurrentCabinet = computed(() => {
   if (!user.value) return !getAccessToken()
   return user.value.roles.includes(activeCabinet.value.role) || user.value.roles.includes('Admin')
 })
+const pageTitle = computed(() => activeCabinet.value.title)
+const pageSubtitle = computed(() => `${activeCabinet.value.role} · ${currentPath.value}`)
+const totalBalance = computed(() =>
+  dashboard.value.accounts.reduce((sum, account) => sum + account.availableBalance.minorUnits, 0),
+)
+const riskKind = computed(() => (currentPath.value === '/cabinet/fraud' ? 'fraud' : 'aml'))
 
 onMounted(async () => {
   window.addEventListener('popstate', () => {
     currentPath.value = normalizePath(window.location.pathname)
+    void loadRoleData()
   })
 
   if (getAccessToken()) {
-    await loadDashboard()
+    try {
+      user.value = await getCurrentUser()
+      await loadDashboard()
+    } catch {
+      await logout()
+    }
   }
 })
 
@@ -104,7 +124,16 @@ async function loadDashboard() {
   selectedTransfer.value =
     dashboard.value.transfers.find((transfer) => transfer.id === selectedTransfer.value?.id) ??
     pendingTransfers.value[0] ??
-    selectedTransfer.value
+    dashboard.value.transfers[0] ??
+    null
+
+  await loadRoleData()
+}
+
+async function loadRoleData() {
+  if (currentPath.value === '/cabinet/admin' && getAccessToken() && canUseCurrentCabinet.value) {
+    adminUsers.value = await getAdminUsers()
+  }
 }
 
 async function submitTransfer() {
@@ -176,6 +205,32 @@ async function disputeTransfer(transferId: string) {
   }
 }
 
+async function submitRiskDecision(transfer: TransferView, decision: 'ManualReview' | 'Allow' | 'Block') {
+  busy.value = true
+  error.value = ''
+  try {
+    await recordRiskDecision(riskKind.value, transfer.id, decision, decisionDetails.value)
+    await loadDashboard()
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Не удалось записать решение.'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function toggleUser(item: AdminUserView) {
+  busy.value = true
+  error.value = ''
+  try {
+    await setAdminUserActive(item.id, !item.isActive)
+    await loadRoleData()
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Не удалось изменить пользователя.'
+  } finally {
+    busy.value = false
+  }
+}
+
 async function signPayload(payload: string) {
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
@@ -192,12 +247,14 @@ async function signPayload(payload: string) {
 function navigate(path: string) {
   currentPath.value = normalizePath(path)
   window.history.pushState({}, '', currentPath.value)
+  void loadRoleData()
 }
 
-function signOut() {
-  logout()
+async function signOut() {
+  await logout()
   user.value = null
-  dashboard.value.transfers = []
+  dashboard.value = { ...emptyDashboard }
+  adminUsers.value = []
   navigate('/cabinet/client')
 }
 
@@ -240,7 +297,7 @@ function date(value: string) {
 
 function statusClass(status: string) {
   if (status === 'Settled') return 'success'
-  if (status === 'Failed' || status === 'Disputed') return 'danger'
+  if (status === 'Failed' || status === 'Disputed' || status === 'Blocked') return 'danger'
   return 'warn'
 }
 
@@ -253,7 +310,7 @@ function accountLabel(account: AccountView) {
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark">SP</div>
-      <div>
+      <div class="brand-copy">
         <strong>SavranPay</strong>
         <span>Ролевые кабинеты</span>
       </div>
@@ -266,21 +323,23 @@ function accountLabel(account: AccountView) {
         :class="{ active: currentPath === cabinet.path }"
         @click="navigate(cabinet.path)"
       >
-        <span>{{ cabinet.icon }}</span>{{ cabinet.title }}
+        <span class="nav-icon">{{ cabinet.icon }}</span>
+        <span>{{ cabinet.title }}</span>
       </button>
     </nav>
 
     <div class="security-note">
       <strong>JWT + refresh token</strong>
-      <span>Доступ к production-режиму выдается по логину, паролю и роли пользователя.</span>
+      <span>Доступ выдается по логину, паролю и роли пользователя.</span>
     </div>
   </aside>
 
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">SavranPay · {{ activeCabinet.role }}</p>
-        <h1>/cabinet/{{ currentPath.split('/').at(-1) }}</h1>
+        <p class="eyebrow">SavranPay</p>
+        <h1>{{ pageTitle }}</h1>
+        <span class="muted">{{ pageSubtitle }}</span>
       </div>
       <div v-if="user || dashboard.customer" class="profile">
         <span>{{ user?.roles.join(', ') || dashboard.customer?.identificationStatus }}</span>
@@ -291,8 +350,8 @@ function accountLabel(account: AccountView) {
 
     <section v-if="error" class="alert">{{ error }}</section>
 
-    <section v-if="!getAccessToken()" class="grid two">
-      <form class="panel" @submit.prevent="submitLogin">
+    <section v-if="!getAccessToken()" class="auth-layout">
+      <form class="panel login-card" @submit.prevent="submitLogin">
         <div class="panel-head">
           <span>Вход</span>
           <small>client@savranpay.local / Client123!</small>
@@ -301,8 +360,9 @@ function accountLabel(account: AccountView) {
         <label>Пароль <input v-model="loginForm.password" autocomplete="current-password" type="password" required /></label>
         <button class="primary" type="submit" :disabled="busy">Войти</button>
       </form>
-      <article class="panel">
-        <div class="panel-head"><span>Роли</span></div>
+
+      <article class="panel role-card">
+        <div class="panel-head"><span>Контуры доступа</span></div>
         <div class="chips">
           <span v-for="cabinet in cabinets" :key="cabinet.role">{{ cabinet.role }}</span>
         </div>
@@ -314,6 +374,25 @@ function accountLabel(account: AccountView) {
     </section>
 
     <template v-else>
+      <section class="stats-strip">
+        <div>
+          <span>Доступный остаток</span>
+          <strong>{{ minor(totalBalance, 'RUB') }}</strong>
+        </div>
+        <div>
+          <span>Переводы</span>
+          <strong>{{ dashboard.transfers.length }}</strong>
+        </div>
+        <div>
+          <span>Risk checks</span>
+          <strong>{{ dashboard.riskChecks.length }}</strong>
+        </div>
+        <div>
+          <span>Аудит</span>
+          <strong>{{ dashboard.auditEvents.length }}</strong>
+        </div>
+      </section>
+
       <section v-if="currentPath === '/cabinet/client'" class="grid transfer-grid">
         <form class="panel transfer-form" @submit.prevent="submitTransfer">
           <div class="panel-head">
@@ -331,7 +410,7 @@ function accountLabel(account: AccountView) {
           </label>
 
           <label>Счет получателя <input v-model="form.recipient.accountNumber" required maxlength="20" /></label>
-          <label>БИК банка получателя <input v-model="form.recipient.bankBic" required maxlength="9" /></label>
+          <label>БИК банка <input v-model="form.recipient.bankBic" required maxlength="9" /></label>
           <label>Получатель <input v-model="form.recipient.name" required /></label>
           <label>Сумма, RUB <input v-model.number="form.amountRub" type="number" min="1" step="1" required /></label>
           <label>Назначение платежа <input v-model="form.purpose" required /></label>
@@ -365,6 +444,17 @@ function accountLabel(account: AccountView) {
           </template>
           <p v-else class="muted">Создайте перевод или выберите ожидающий подтверждения.</p>
         </article>
+
+        <article class="panel wide">
+          <div class="panel-head"><span>Мои счета</span></div>
+          <div class="accounts">
+            <div v-for="account in dashboard.accounts" :key="account.id" class="account">
+              <span>{{ account.maskedNumber }}</span>
+              <strong>{{ money(account.availableBalance) }}</strong>
+              <small>{{ account.status }}</small>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section v-if="currentPath === '/cabinet/support'" class="panel">
@@ -392,34 +482,41 @@ function accountLabel(account: AccountView) {
             </div>
           </div>
         </article>
+
         <article class="panel">
-          <div class="panel-head"><span>Лимиты</span></div>
-          <div class="limits">
-            <div v-for="limit in dashboard.limits" :key="limit.name">
-              <span>{{ limit.name }}</span>
-              <strong>{{ limit.value }}</strong>
+          <div class="panel-head"><span>Ручное решение</span></div>
+          <label>Комментарий <input v-model="decisionDetails" /></label>
+          <div class="decision-list">
+            <div v-for="transfer in dashboard.transfers.slice(0, 4)" :key="transfer.id" class="decision-card">
+              <strong>{{ transfer.recipient.name }}</strong>
+              <span>{{ money(transfer.amount) }} · {{ transfer.status }}</span>
+              <div class="actions">
+                <button class="ghost" :disabled="busy" @click="submitRiskDecision(transfer, 'Allow')">Allow</button>
+                <button class="ghost" :disabled="busy" @click="submitRiskDecision(transfer, 'ManualReview')">Review</button>
+                <button class="ghost danger-action" :disabled="busy" @click="submitRiskDecision(transfer, 'Block')">Block</button>
+              </div>
             </div>
           </div>
         </article>
       </section>
 
       <section v-if="currentPath === '/cabinet/admin'" class="grid overview-grid">
-        <article class="panel">
-          <div class="panel-head"><span>Счета</span></div>
-          <div class="accounts">
-            <div v-for="account in dashboard.accounts" :key="account.id" class="account">
-              <span>{{ account.maskedNumber }}</span>
-              <strong>{{ money(account.availableBalance) }}</strong>
-              <small>{{ account.status }}</small>
-            </div>
+        <article class="panel wide">
+          <div class="panel-head">
+            <span>Пользователи и роли</span>
+            <button class="ghost" @click="loadRoleData">Обновить</button>
           </div>
-        </article>
-        <article class="panel">
-          <div class="panel-head"><span>Контроль</span></div>
-          <div class="metric-list">
-            <div><strong>{{ dashboard.transfers.length }}</strong><span>переводов</span></div>
-            <div><strong>{{ dashboard.auditEvents.length }}</strong><span>событий аудита</span></div>
-            <div><strong>{{ dashboard.notifications.length }}</strong><span>уведомлений</span></div>
+          <div class="table users-table">
+            <div class="row header"><span>Пользователь</span><span>Роли</span><span>Статус</span><span>Создан</span><span></span></div>
+            <div v-for="item in adminUsers" :key="item.id" class="row">
+              <span><strong>{{ item.fullName }}</strong><small>{{ item.login }}</small></span>
+              <span>{{ item.roles.join(', ') }}</span>
+              <span class="badge" :class="item.isActive ? 'success' : 'danger'">{{ item.isActive ? 'Активен' : 'Заблокирован' }}</span>
+              <span>{{ date(item.createdAt) }}</span>
+              <button class="ghost" :disabled="busy" @click="toggleUser(item)">
+                {{ item.isActive ? 'Блокировать' : 'Разблокировать' }}
+              </button>
+            </div>
           </div>
         </article>
       </section>

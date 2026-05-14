@@ -15,6 +15,7 @@ using SavranPay.Infrastructure.Risk;
 using SavranPay.Infrastructure.Transfers;
 using SavranPay.SharedKernel;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
@@ -24,6 +25,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole();
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Routing.EndpointMiddleware", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Http.Result", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.AspNetCore.Cors.Infrastructure.CorsService", LogLevel.Warning);
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(
+        builder.Configuration.GetValue<string>("DataProtection:KeysPath") ?? "/var/lib/savranpay/dataprotection-keys"))
+    .SetApplicationName("SavranPay");
 builder.Services.AddHttpsRedirection(options =>
 {
     options.HttpsPort = 5001;
@@ -33,16 +43,30 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
+
+var frontendOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()?
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .ToArray() ?? [];
+
+if (frontendOrigins.Length == 0)
+{
+    frontendOrigins =
+    [
+        "https://localhost:5173",
+        "http://localhost:5173",
+        "https://127.0.0.1:5173",
+        "http://127.0.0.1:5173",
+        "https://savranpay.netlify.app"
+    ];
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("SavranPayFrontend", policy =>
     {
-        policy.WithOrigins(
-                "https://localhost:5173",
-                "http://localhost:5173",
-                "https://127.0.0.1:5173",
-                "http://127.0.0.1:5173",
-                "https://savranpay.netlify.app")
+        policy.WithOrigins(frontendOrigins)
             .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id")
             .WithMethods("GET", "POST", "OPTIONS");
     });
@@ -130,12 +154,13 @@ app.UseMiddleware<JwtAuthenticationMiddleware>();
 app.UseAuthorization();
 app.Use(async (context, next) =>
 {
+    var connectSources = string.Join(" ", frontendOrigins);
     context.Response.Headers.ContentSecurityPolicy =
         "default-src 'self'; " +
         "script-src 'self' https://unpkg.com 'unsafe-eval'; " +
         "style-src 'self' 'unsafe-inline'; " +
         "img-src 'self' data:; " +
-        "connect-src 'self' https://savranpay.netlify.app; " +
+        $"connect-src 'self' {connectSources}; " +
         "font-src 'self'; " +
         "frame-ancestors 'none'; " +
         "base-uri 'self'; " +

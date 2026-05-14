@@ -219,9 +219,11 @@ netlify.toml     frontend
 
 1. Опубликовать репозиторий в GitHub.
 2. Создать Render Blueprint из `render.yaml`.
-3. Получить публичный backend URL, например `https://savranpay-backend.onrender.com`.
-4. В Netlify указать переменную `VITE_API_BASE_URL` со значением публичного backend URL.
-5. Опубликовать frontend на `https://savranpay.netlify.app` или подключить свой домен.
+3. Получить публичный URL продукта `https://savranpay.onrender.com`.
+4. Открыть `/health/ready` и убедиться, что PostgreSQL готов.
+5. Открыть `/cabinet/client` и войти демо-пользователем.
+
+Vue frontend также собирается внутрь backend Docker-образа, поэтому для демонстрации достаточно одного публичного URL. Netlify остаётся опциональным вариантом отдельного frontend-деплоя.
 
 Подробная инструкция: `docs/operations/public-domain-deployment.md`.
 
