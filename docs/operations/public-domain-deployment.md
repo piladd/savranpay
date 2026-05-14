@@ -104,6 +104,34 @@ Netlify frontend:
 VITE_API_BASE_URL=https://savranpay.onrender.com
 ```
 
+## Optional Vercel frontend
+
+Vercel can publish only the Vue frontend. The backend must still be deployed on Render first.
+
+Project settings:
+
+```text
+Framework Preset: Vite
+Root Directory: leave empty
+Build Command: cd frontend/savranpay-web && npm run build
+Install Command: cd frontend/savranpay-web && npm ci
+Output Directory: frontend/savranpay-web/dist
+```
+
+Environment variable:
+
+```text
+VITE_API_BASE_URL=https://<actual-render-backend-url>
+```
+
+For the current Vercel deployment, set:
+
+```text
+VITE_API_BASE_URL=https://savranpay.onrender.com
+```
+
+If Render gives another service URL, use that exact URL instead. After changing the Vercel environment variable, redeploy the frontend.
+
 ## Demo credentials
 
 When PostgreSQL starts for the first time, the backend migration and initializer create:
