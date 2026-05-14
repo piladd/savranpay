@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd savranpay-web && npm ci",
+  "buildCommand": "cd savranpay-web && npm run build",
+  "outputDirectory": "savranpay-web/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
