@@ -1,19 +1,44 @@
 # SavranPay
 
-SavranPay - демонстрационный банковский сервис перевода денежных средств на C#/.NET и Vue.
+SavranPay - учебный банковский сервис переводов денежных средств на C#/.NET и Vue 3. Проект показывает полный контур обработки перевода: авторизация пользователя, ролевые кабинеты, создание распоряжения, проверки AML/антифрод, подтверждение операции, ledger-учет, аудит, уведомления и подготовка к публикации frontend на публичном домене.
 
-Проект показывает, как устроить безопасный процесс перевода: распоряжение клиента, проверка счета и лимитов, AML/KYC, антифрод, криптографическое подтверждение, ledger-учет, аудит, уведомления и обработка спорных операций.
+## Что реализовано
 
-## Структура
+- Backend API на ASP.NET Core 8.
+- Frontend на Vue 3 + TypeScript + Vite.
+- Авторизация по `login/password`.
+- JWT access token и refresh token.
+- Роли: `Customer`, `SupportOperator`, `AmlOfficer`, `FraudOfficer`, `Admin`, `Auditor`.
+- Отдельные кабинеты:
+  - `/cabinet/client`
+  - `/cabinet/support`
+  - `/cabinet/aml`
+  - `/cabinet/fraud`
+  - `/cabinet/admin`
+  - `/cabinet/audit`
+- PostgreSQL + EF Core.
+- Миграция начальной схемы БД.
+- Таблицы `users`, `roles`, `user_roles`, `refresh_tokens`, `accounts`, `transfers`, `ledger`, `audit_events`, `outbox_messages`, `inbox_messages`, `notifications`.
+- Outbox worker для обработки событий и уведомлений.
+- Health checks: `/health/live`, `/health/ready`.
+- Метрики в Prometheus text format: `/metrics`.
+- Structured JSON logging.
+- Docker Compose для локального production-like запуска.
+- Конфиги публикации: `render.yaml` для backend/worker/PostgreSQL и `netlify.toml` для frontend.
+
+## Структура проекта
 
 ```text
 src/
-  BankTransfers.Api              HTTPS API и встроенный демо-кабинет
-  BankTransfers.Application      сценарии использования, команды, DTO
-  BankTransfers.Domain           бизнес-правила и доменные сущности
-  BankTransfers.Infrastructure   demo-хранилище, AML, антифрод, криптография, аудит
-  BankTransfers.Workers          фоновые обработчики
-  BankTransfers.SharedKernel     общие базовые типы
+  BankTransfers.Api              ASP.NET Core API, JWT, endpoints, health, metrics
+  BankTransfers.Application      use cases, handlers, interfaces
+  BankTransfers.Domain           domain model: accounts, transfers, money, risk
+  BankTransfers.Infrastructure   EF Core, PostgreSQL, auth, audit, crypto, notifications
+  BankTransfers.Workers          outbox worker
+  BankTransfers.SharedKernel     common domain primitives
+
+frontend/
+  savranpay-web                  Vue 3 + TypeScript frontend
 
 tests/
   BankTransfers.UnitTests
@@ -22,14 +47,17 @@ tests/
   BankTransfers.ContractTests
 
 docs/
-  architecture
   api
+  architecture
   compliance
-  threat-model
   operations
+  threat-model
+  TZ_SavranPay_v1_1.md
 ```
 
-## Локальный запуск
+## Быстрый запуск без PostgreSQL
+
+Этот режим нужен для быстрых тестов и разработки. Если строка подключения PostgreSQL не задана, backend использует in-memory demo-store.
 
 ```powershell
 dotnet build
@@ -37,22 +65,163 @@ dotnet test --no-build
 dotnet run --project src\BankTransfers.Api\BankTransfers.Api.csproj --launch-profile https
 ```
 
-Открыть кабинет:
+Backend:
 
 ```text
 https://localhost:5001
 ```
 
-Основные API:
+Frontend:
 
-```text
-https://localhost:5001/api/v1/dashboard
-https://localhost:5001/api/v1/accounts
-https://localhost:5001/api/v1/transfers
-https://localhost:5001/api/v1/ledger
-https://localhost:5001/api/v1/audit-events
+```powershell
+cd frontend\savranpay-web
+npm install
+npm run dev
 ```
 
-## Ограничения MVP
+Открыть:
 
-Текущая версия является учебным MVP. В ней используется in-memory-хранилище и демонстрационная HMAC-SHA-256 модель подтверждения операции. Для production нужны PostgreSQL/MS SQL Server, миграции, OAuth/OIDC, HSM/KMS или сертифицированное СКЗИ, полноценная модель ролей, outbox/inbox и отдельный Vue 3 + TypeScript + Vite frontend.
+```text
+http://localhost:5173/cabinet/client
+```
+
+## Запуск через Docker Compose
+
+Docker Compose поднимает PostgreSQL, backend, worker и frontend.
+
+```powershell
+copy .env.example .env
+docker compose up --build
+```
+
+После запуска:
+
+```text
+Frontend: http://localhost:5173/cabinet/client
+Backend:  http://localhost:8080
+Health:   http://localhost:8080/health/ready
+Metrics:  http://localhost:8080/metrics
+```
+
+## Демо-пользователи
+
+При первом запуске с PostgreSQL создаются пользователи:
+
+```text
+client@savranpay.local  / Client123!
+support@savranpay.local / Support123!
+aml@savranpay.local     / Aml123!
+fraud@savranpay.local   / Fraud123!
+admin@savranpay.local   / Admin123!
+audit@savranpay.local   / Audit123!
+```
+
+## Основные API
+
+```text
+POST /api/v1/auth/login
+POST /api/v1/auth/refresh
+
+GET  /api/v1/dashboard
+GET  /api/v1/accounts
+GET  /api/v1/transfers
+POST /api/v1/transfers
+GET  /api/v1/transfers/{transferId}
+GET  /api/v1/transfers/{transferId}/confirmation-challenge
+POST /api/v1/transfers/{transferId}/confirm
+POST /api/v1/transfers/{transferId}/unauthorized-claim
+
+GET  /api/v1/ledger
+GET  /api/v1/audit-events
+GET  /api/v1/risk-checks
+GET  /api/v1/cabinets
+
+GET  /health/live
+GET  /health/ready
+GET  /metrics
+```
+
+OpenAPI-спецификация находится в `docs/api/openapi.yaml`.
+
+## PostgreSQL и миграции
+
+EF Core контекст: `SavranPayDbContext`.
+
+Миграция начальной схемы лежит в:
+
+```text
+src/BankTransfers.Infrastructure/Migrations
+```
+
+Backend автоматически применяет миграции при старте, если задана строка подключения:
+
+```text
+ConnectionStrings__Postgres=Host=localhost;Port=5432;Database=savranpay;Username=savranpay;Password=change-me
+```
+
+## Авторизация и роли
+
+В production-like режиме включайте:
+
+```text
+Jwt__RequireAuthorization=true
+Jwt__SigningKey=<strong-secret-key>
+```
+
+При включенной авторизации API проверяет Bearer JWT и роли пользователя. Frontend сохраняет access token и отправляет его в заголовке:
+
+```text
+Authorization: Bearer <token>
+```
+
+## Outbox, inbox и уведомления
+
+Backend сохраняет события в `outbox_messages`. Worker `BankTransfers.Workers` забирает недоставленные события и передает уведомления через `INotificationSender`.
+
+Сейчас используется `LoggingNotificationSender`. Для production его нужно заменить на email/SMS/push адаптер.
+
+## Криптография
+
+В учебном стенде подтверждение перевода использует HMAC-SHA-256 и WebCrypto, чтобы сценарий можно было воспроизвести локально.
+
+Для production предусмотрена точка расширения `ICryptoService` и настройки `ProductionCrypto`. Реальная промышленная реализация должна подключать HSM/KMS, WebAuthn/passkeys или сертифицированную СКЗИ/ГОСТ-библиотеку. Демо-HMAC не является production-криптографией.
+
+## Публичный деплой
+
+Подготовлены конфиги:
+
+```text
+render.yaml      backend + worker + PostgreSQL
+netlify.toml     frontend
+```
+
+Порядок публикации:
+
+1. Опубликовать репозиторий в GitHub.
+2. Создать Render Blueprint из `render.yaml`.
+3. Получить публичный backend URL, например `https://savranpay-backend.onrender.com`.
+4. В Netlify указать переменную `VITE_API_BASE_URL` со значением публичного backend URL.
+5. Опубликовать frontend на `https://savranpay.netlify.app` или подключить свой домен.
+
+Подробная инструкция: `docs/operations/public-domain-deployment.md`.
+
+## Документация
+
+- ТЗ: `docs/TZ_SavranPay_v1_1.md`
+- Краткая ссылка на ТЗ: `TZ_SavranPay_v1_1.md`
+- Архитектура: `docs/architecture`
+- OpenAPI: `docs/api/openapi.yaml`
+- Compliance: `docs/compliance`
+- Threat model: `docs/threat-model/threat-model.md`
+- Runbook: `docs/operations/runbook.md`
+
+## Проверка проекта
+
+```powershell
+dotnet build
+dotnet test --no-build
+cd frontend\savranpay-web
+npm run build
+```
+
+Последняя проверка проекта проходила успешно для backend, тестов и frontend-сборки.
