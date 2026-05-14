@@ -17,6 +17,8 @@ services:
         value: https://savranpay.onrender.com
       - key: Cors__AllowedOrigins__1
         value: https://savranpay.netlify.app
+      - key: Cors__AllowedOrigins__2
+        value: https://savranpay-5yge.vercel.app
       - key: ConnectionStrings__Postgres
         fromDatabase:
           name: savranpay-postgres
