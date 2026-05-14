@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\BankTransfers.Application\BankTransfers.Application.csproj" />
+    <ProjectReference Include="..\BankTransfers.Infrastructure\BankTransfers.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\BankTransfers.SharedKernel\BankTransfers.SharedKernel.csproj" />
+  </ItemGroup>
+</Project>

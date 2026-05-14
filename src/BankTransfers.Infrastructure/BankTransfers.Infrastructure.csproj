@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\BankTransfers.Application\BankTransfers.Application.csproj" />
+    <ProjectReference Include="..\BankTransfers.Domain\BankTransfers.Domain.csproj" />
+  </ItemGroup>
+</Project>

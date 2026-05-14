@@ -1,0 +1,145 @@
+openapi: 3.0.3
+info:
+  title: BankTransfers API
+  version: 0.1.0
+  description: Учебная спецификация API сервиса банковских переводов.
+paths:
+  /api/v1/transfers:
+    post:
+      summary: Создать распоряжение на перевод
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-Customer-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransferRequest"
+      responses:
+        "202":
+          description: Перевод создан и ожидает подтверждения
+  /api/v1/transfers/{transferId}/confirm:
+    post:
+      summary: Подтвердить перевод
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmTransferRequest"
+      responses:
+        "200":
+          description: Подтверждение обработано
+  /api/v1/transfers/{transferId}:
+    get:
+      summary: Получить статус перевода
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Статус перевода
+        "404":
+          description: Перевод не найден
+  /api/v1/transfers/{transferId}/unauthorized-claim:
+    post:
+      summary: Заявить об операции без согласия клиента
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Заявление принято
+        "404":
+          description: Перевод не найден
+components:
+  schemas:
+    CreateTransferRequest:
+      type: object
+      required:
+        - fromAccountId
+        - recipient
+        - amount
+        - purpose
+      properties:
+        fromAccountId:
+          type: string
+          format: uuid
+        recipient:
+          $ref: "#/components/schemas/Recipient"
+        amount:
+          $ref: "#/components/schemas/Money"
+        purpose:
+          type: string
+    Recipient:
+      type: object
+      required:
+        - type
+        - accountNumber
+        - bankBic
+        - name
+      properties:
+        type:
+          type: string
+          example: Account
+        accountNumber:
+          type: string
+          example: "40817810000000000001"
+        bankBic:
+          type: string
+          example: "044525225"
+        name:
+          type: string
+          example: "Иван Иванов"
+    Money:
+      type: object
+      required:
+        - minorUnits
+        - currency
+      properties:
+        minorUnits:
+          type: integer
+          format: int64
+          example: 150000
+        currency:
+          type: string
+          example: RUB
+    ConfirmTransferRequest:
+      type: object
+      required:
+        - confirmationType
+        - signature
+        - nonce
+      properties:
+        confirmationType:
+          type: string
+          example: TransactionSignature
+        signature:
+          type: string
+        nonce:
+          type: string

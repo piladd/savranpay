@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SavranPay Кабинет</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">SP</div>
+        <div>
+          <strong>SavranPay</strong>
+          <span>Защищенный кабинет</span>
+        </div>
+      </div>
+      <nav>
+        <button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">
+          <span>{{ tab.icon }}</span>{{ tab.title }}
+        </button>
+      </nav>
+      <div class="security-note">
+        <strong>HTTPS + WebCrypto</strong>
+        <span>Подтверждение перевода подписывает сумму, получателя, назначение, nonce и время.</span>
+      </div>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Демонстрационный банковский сервис</p>
+          <h1>Кабинет SavranPay</h1>
+        </div>
+        <div class="profile" v-if="dashboard.customer">
+          <span>{{ dashboard.customer.identificationStatus }}</span>
+          <strong>{{ dashboard.customer.fullName }}</strong>
+        </div>
+      </header>
+
+      <section v-if="error" class="alert">{{ error }}</section>
+
+      <section v-show="activeTab === 'overview'" class="grid overview-grid">
+        <article class="panel balance-panel">
+          <div class="panel-head">
+            <span>Счета</span>
+            <button class="ghost" @click="loadDashboard">Обновить</button>
+          </div>
+          <div class="accounts">
+            <div class="account" v-for="account in dashboard.accounts" :key="account.id">
+              <span>{{ account.maskedNumber }}</span>
+              <strong>{{ money(account.availableBalance) }}</strong>
+              <small>{{ account.status }}</small>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <span>Контроль</span>
+          </div>
+          <div class="metric-list">
+            <div><strong>{{ dashboard.transfers.length }}</strong><span>переводов</span></div>
+            <div><strong>{{ dashboard.riskChecks.length }}</strong><span>AML/антифрод</span></div>
+            <div><strong>{{ dashboard.auditEvents.length }}</strong><span>событий аудита</span></div>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <div class="panel-head">
+            <span>Соответствие ТЗ</span>
+          </div>
+          <div class="chips">
+            <span v-for="item in dashboard.compliance" :key="item">{{ item }}</span>
+          </div>
+        </article>
+      </section>
+
+      <section v-show="activeTab === 'transfer'" class="grid transfer-grid">
+        <form class="panel transfer-form" @submit.prevent="createTransfer">
+          <div class="panel-head">
+            <span>Новый перевод</span>
+            <small>Idempotency-Key создается автоматически</small>
+          </div>
+
+          <label>
+            Счет списания
+            <select v-model="form.fromAccountId" required>
+              <option v-for="account in dashboard.accounts" :key="account.id" :value="account.id">
+                {{ account.maskedNumber }} · {{ money(account.availableBalance) }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Счет получателя
+            <input v-model="form.recipient.accountNumber" required maxlength="20">
+          </label>
+
+          <label>
+            БИК банка получателя
+            <input v-model="form.recipient.bankBic" required maxlength="9">
+          </label>
+
+          <label>
+            Получатель
+            <input v-model="form.recipient.name" required>
+          </label>
+
+          <label>
+            Сумма, RUB
+            <input v-model.number="form.amountRub" type="number" min="1" step="1" required>
+          </label>
+
+          <label>
+            Назначение платежа
+            <input v-model="form.purpose" required>
+          </label>
+
+          <button class="primary" type="submit" :disabled="busy">Создать распоряжение</button>
+        </form>
+
+        <article class="panel confirmation">
+          <div class="panel-head">
+            <span>Криптографическое подтверждение</span>
+            <small>HMAC-SHA-256, nonce, timestamp</small>
+          </div>
+
+          <template v-if="selectedTransfer">
+            <div class="confirm-card">
+              <strong>{{ selectedTransfer.recipient.name }}</strong>
+              <span>{{ money(selectedTransfer.amount) }} · {{ selectedTransfer.status }}</span>
+              <small>{{ selectedTransfer.recipient.accountNumber }}</small>
+            </div>
+            <button class="primary" @click="confirmTransfer(selectedTransfer.id)" :disabled="busy || selectedTransfer.status !== 'PendingClientConfirmation'">
+              Подписать и подтвердить через WebCrypto
+            </button>
+            <pre v-if="lastChallenge">{{ lastChallenge }}</pre>
+          </template>
+          <p v-else class="muted">Создайте перевод или выберите ожидающий подтверждения в журнале.</p>
+        </article>
+      </section>
+
+      <section v-show="activeTab === 'transactions'" class="panel">
+        <div class="panel-head">
+          <span>Транзакции</span>
+          <small>Жизненный цикл перевода</small>
+        </div>
+        <div class="table">
+          <div class="row header">
+            <span>Получатель</span><span>Сумма</span><span>Статус</span><span>Дата</span><span></span>
+          </div>
+          <div class="row" v-for="transfer in dashboard.transfers" :key="transfer.id">
+            <span>{{ transfer.recipient.name }}</span>
+            <strong>{{ money(transfer.amount) }}</strong>
+            <span class="badge" :class="statusClass(transfer.status)">{{ transfer.status }}</span>
+            <span>{{ date(transfer.createdAt) }}</span>
+            <button class="ghost" @click="selectTransfer(transfer)">Открыть</button>
+          </div>
+        </div>
+      </section>
+
+      <section v-show="activeTab === 'risk'" class="grid two">
+        <article class="panel">
+          <div class="panel-head"><span>AML и антифрод</span></div>
+          <div class="timeline">
+            <div v-for="check in dashboard.riskChecks" :key="check.id">
+              <strong>{{ check.checkType }} · {{ check.decision }}</strong>
+              <span>{{ check.details }}</span>
+              <small>{{ date(check.createdAt) }}</small>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><span>Лимиты</span></div>
+          <div class="limits">
+            <div v-for="limit in dashboard.limits" :key="limit.name">
+              <span>{{ limit.name }}</span>
+              <strong>{{ limit.value }}</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section v-show="activeTab === 'ledger'" class="grid two">
+        <article class="panel">
+          <div class="panel-head"><span>Ledger</span></div>
+          <div class="table compact">
+            <div class="row header"><span>Счет</span><span>Дебет</span><span>Кредит</span></div>
+            <div class="row" v-for="entry in dashboard.ledger" :key="entry.id">
+              <span>{{ entry.accountNumber }}</span>
+              <span>{{ minor(entry.debitMinorUnits, entry.currency) }}</span>
+              <span>{{ minor(entry.creditMinorUnits, entry.currency) }}</span>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><span>Аудит</span></div>
+          <div class="timeline">
+            <div v-for="event in dashboard.auditEvents" :key="event.id">
+              <strong>{{ event.eventType }}</strong>
+              <span>{{ event.message }}</span>
+              <small>{{ date(event.createdAt) }}</small>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
