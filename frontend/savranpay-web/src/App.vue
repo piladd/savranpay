@@ -60,7 +60,7 @@ const form = ref({
     type: 'Account',
     accountNumber: '40817810000000000002',
     bankBic: '044525225',
-    name: 'Иван Петров, накопительный счет',
+    name: 'Анна Смирнова',
   },
   amountRub: 1500,
   purpose: 'Перевод собственных средств',
@@ -302,7 +302,11 @@ function statusClass(status: string) {
 }
 
 function accountLabel(account: AccountView) {
-  return `${account.maskedNumber} · ${money(account.availableBalance)}`
+  return `${account.number} · ${money(account.availableBalance)}`
+}
+
+function recipientDetails(transfer: TransferView) {
+  return `${transfer.recipient.accountNumber} · БИК ${transfer.recipient.bankBic}`
 }
 </script>
 
@@ -426,9 +430,23 @@ function accountLabel(account: AccountView) {
 
           <template v-if="selectedTransfer">
             <div class="confirm-card">
-              <strong>{{ selectedTransfer.recipient.name }}</strong>
-              <span>{{ money(selectedTransfer.amount) }} · {{ selectedTransfer.status }}</span>
-              <small>{{ selectedTransfer.recipient.accountNumber }}</small>
+              <div class="detail-line">
+                <b>Получатель</b>
+                <span>{{ selectedTransfer.recipient.name }}</span>
+              </div>
+              <div class="detail-line">
+                <b>Счет</b>
+                <span>{{ selectedTransfer.recipient.accountNumber }}</span>
+              </div>
+              <div class="detail-line">
+                <b>БИК</b>
+                <span>{{ selectedTransfer.recipient.bankBic }}</span>
+              </div>
+              <div class="detail-line">
+                <b>Сумма</b>
+                <span>{{ money(selectedTransfer.amount) }}</span>
+              </div>
+              <span class="badge" :class="statusClass(selectedTransfer.status)">{{ selectedTransfer.status }}</span>
             </div>
             <button
               class="primary"
@@ -449,7 +467,7 @@ function accountLabel(account: AccountView) {
           <div class="panel-head"><span>Мои счета</span></div>
           <div class="accounts">
             <div v-for="account in dashboard.accounts" :key="account.id" class="account">
-              <span>{{ account.maskedNumber }}</span>
+              <span class="account-number">{{ account.number }}</span>
               <strong>{{ money(account.availableBalance) }}</strong>
               <small>{{ account.status }}</small>
             </div>
@@ -462,7 +480,10 @@ function accountLabel(account: AccountView) {
         <div class="table">
           <div class="row header"><span>Получатель</span><span>Сумма</span><span>Статус</span><span>Дата</span><span></span></div>
           <div v-for="transfer in dashboard.transfers" :key="transfer.id" class="row">
-            <span>{{ transfer.recipient.name }}</span>
+            <span class="recipient-cell">
+              <strong>{{ transfer.recipient.name }}</strong>
+              <small>{{ recipientDetails(transfer) }}</small>
+            </span>
             <strong>{{ money(transfer.amount) }}</strong>
             <span class="badge" :class="statusClass(transfer.status)">{{ transfer.status }}</span>
             <span>{{ date(transfer.createdAt) }}</span>
@@ -489,6 +510,7 @@ function accountLabel(account: AccountView) {
           <div class="decision-list">
             <div v-for="transfer in dashboard.transfers.slice(0, 4)" :key="transfer.id" class="decision-card">
               <strong>{{ transfer.recipient.name }}</strong>
+              <small>{{ recipientDetails(transfer) }}</small>
               <span>{{ money(transfer.amount) }} · {{ transfer.status }}</span>
               <div class="actions">
                 <button class="ghost" :disabled="busy" @click="submitRiskDecision(transfer, 'Allow')">Allow</button>

@@ -257,6 +257,45 @@ h1 {
 
 .account strong, .metric-list strong { font-size: 24px; }
 
+.account-number {
+  font-family: Consolas, "SFMono-Regular", monospace;
+  font-size: 15px;
+  color: #20343a;
+  overflow-wrap: anywhere;
+}
+
+.detail-line {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.detail-line b {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detail-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.confirm-card .badge {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+.recipient-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.recipient-cell strong {
+  overflow-wrap: anywhere;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
