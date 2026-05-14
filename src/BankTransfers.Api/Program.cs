@@ -13,6 +13,7 @@ using BankTransfers.Infrastructure.Persistence;
 using BankTransfers.Infrastructure.Risk;
 using BankTransfers.Infrastructure.Transfers;
 using BankTransfers.SharedKernel;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
@@ -49,9 +50,11 @@ builder.Services.AddCors(options =>
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<ProductionCryptoOptions>(builder.Configuration.GetSection("ProductionCrypto"));
 builder.Services.AddSingleton<JwtTokenService>();
+builder.Services.AddAuthentication("SavranPayJwt")
+    .AddScheme<AuthenticationSchemeOptions, SavranPayAuthenticationHandler>("SavranPayJwt", options => { });
 builder.Services.AddAuthorization();
 builder.Services.AddHealthChecks();
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton<IClock, BankTransfers.SharedKernel.SystemClock>();
 builder.Services.AddSingleton<DemoBankStore>();
 
 var postgresConnectionString = builder.Configuration.GetConnectionString("Postgres");
@@ -86,6 +89,8 @@ builder.Services.AddScoped<CreateTransferHandler>();
 builder.Services.AddScoped<ConfirmTransferHandler>();
 
 var app = builder.Build();
+long totalRequests = 0;
+long serverErrors = 0;
 
 if (usePostgres)
 {
@@ -108,6 +113,16 @@ if (!httpsRedirectionDisabled)
 }
 
 app.UseCors("SavranPayFrontend");
+app.Use(async (context, next) =>
+{
+    Interlocked.Increment(ref totalRequests);
+    await next();
+    if (context.Response.StatusCode >= StatusCodes.Status500InternalServerError)
+    {
+        Interlocked.Increment(ref serverErrors);
+    }
+});
+app.UseAuthentication();
 app.UseMiddleware<JwtAuthenticationMiddleware>();
 app.UseAuthorization();
 app.Use(async (context, next) =>
@@ -147,6 +162,16 @@ app.MapGet("/health/ready", async (IServiceProvider services, CancellationToken 
         ? Results.Ok(new { status = "ready", storage = "postgresql" })
         : Results.Problem("PostgreSQL is unavailable.", statusCode: StatusCodes.Status503ServiceUnavailable);
 }).AllowAnonymous();
+app.MapGet("/metrics", () => Results.Text(
+    $"""
+    # HELP savranpay_http_requests_total Total HTTP requests handled by SavranPay.
+    # TYPE savranpay_http_requests_total counter
+    savranpay_http_requests_total {Interlocked.Read(ref totalRequests)}
+    # HELP savranpay_http_server_errors_total Total HTTP 5xx responses handled by SavranPay.
+    # TYPE savranpay_http_server_errors_total counter
+    savranpay_http_server_errors_total {Interlocked.Read(ref serverErrors)}
+    """,
+    "text/plain")).AllowAnonymous();
 
 app.MapPost("/api/v1/auth/login", async (
     LoginRequest request,
@@ -281,7 +306,7 @@ if (requireAuthorization)
     dashboardEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
 }
 
-app.MapGet("/api/v1/accounts", async (IServiceProvider services, HttpContext httpContext, CancellationToken cancellationToken) =>
+var accountsEndpoint = app.MapGet("/api/v1/accounts", async (IServiceProvider services, HttpContext httpContext, CancellationToken cancellationToken) =>
 {
     if (usePostgres)
     {
@@ -303,21 +328,46 @@ app.MapGet("/api/v1/accounts", async (IServiceProvider services, HttpContext htt
 
     return Results.Ok(services.GetRequiredService<DemoBankStore>().Accounts.Values.Select(ToAccountView));
 });
+if (requireAuthorization)
+{
+    accountsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
+}
 
-app.MapGet("/api/v1/transfers", async (IServiceProvider services, HttpContext httpContext, CancellationToken cancellationToken) =>
+var transfersEndpoint = app.MapGet("/api/v1/transfers", async (IServiceProvider services, HttpContext httpContext, CancellationToken cancellationToken) =>
 {
     if (usePostgres)
     {
         await using var scope = services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
         var customerId = TryReadCustomerId(httpContext.Request) ?? TryReadCustomerIdFromClaims(httpContext) ?? DemoBankStore.DemoCustomerId;
-        return Results.Ok(await db.Transfers.AsNoTracking().Where(item => item.CustomerId == customerId).OrderByDescending(item => item.CreatedAt).ToListAsync(cancellationToken));
+        return Results.Ok(await db.Transfers.AsNoTracking().Where(item => item.CustomerId == customerId).OrderByDescending(item => item.CreatedAt).Select(item => new
+        {
+            item.Id,
+            item.CustomerId,
+            item.FromAccountId,
+            Recipient = new
+            {
+                Type = item.RecipientType,
+                AccountNumber = item.RecipientAccountNumber,
+                BankBic = item.RecipientBankBic,
+                Name = item.RecipientName
+            },
+            Amount = new { MinorUnits = item.AmountMinorUnits, item.Currency },
+            item.Purpose,
+            item.Status,
+            item.CreatedAt,
+            item.UpdatedAt
+        }).ToListAsync(cancellationToken));
     }
 
     return Results.Ok(services.GetRequiredService<DemoBankStore>().Transfers.Values.OrderByDescending(transfer => transfer.CreatedAt).Select(ToTransferView));
 });
+if (requireAuthorization)
+{
+    transfersEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
+}
 
-app.MapGet("/api/v1/audit-events", async (IServiceProvider services, CancellationToken cancellationToken) =>
+var auditEventsEndpoint = app.MapGet("/api/v1/audit-events", async (IServiceProvider services, CancellationToken cancellationToken) =>
 {
     if (usePostgres)
     {
@@ -327,13 +377,21 @@ app.MapGet("/api/v1/audit-events", async (IServiceProvider services, Cancellatio
 
     return Results.Ok(services.GetRequiredService<DemoBankStore>().AuditEvents.OrderByDescending(audit => audit.CreatedAt));
 });
+if (requireAuthorization)
+{
+    auditEventsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Auditor, SavranPayRole.Admin));
+}
 
-app.MapGet("/api/v1/risk-checks", (DemoBankStore store) =>
+var riskChecksEndpoint = app.MapGet("/api/v1/risk-checks", (DemoBankStore store) =>
 {
     return Results.Ok(store.RiskChecks.OrderByDescending(check => check.CreatedAt));
 });
+if (requireAuthorization)
+{
+    riskChecksEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.AmlOfficer, SavranPayRole.FraudOfficer, SavranPayRole.Admin));
+}
 
-app.MapGet("/api/v1/ledger", async (IServiceProvider services, CancellationToken cancellationToken) =>
+var ledgerEndpoint = app.MapGet("/api/v1/ledger", async (IServiceProvider services, CancellationToken cancellationToken) =>
 {
     if (usePostgres)
     {
@@ -343,8 +401,12 @@ app.MapGet("/api/v1/ledger", async (IServiceProvider services, CancellationToken
 
     return Results.Ok(services.GetRequiredService<DemoBankStore>().LedgerEntries.OrderByDescending(entry => entry.CreatedAt));
 });
+if (requireAuthorization)
+{
+    ledgerEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Auditor, SavranPayRole.Admin));
+}
 
-app.MapPost("/api/v1/transfers", async (
+var createTransferEndpoint = app.MapPost("/api/v1/transfers", async (
     CreateTransferRequest request,
     HttpRequest httpRequest,
     CreateTransferHandler handler,
@@ -371,8 +433,12 @@ app.MapPost("/api/v1/transfers", async (
     var result = await handler.Handle(command, cancellationToken);
     return Results.Accepted($"/api/v1/transfers/{result.TransferId}", result);
 });
+if (requireAuthorization)
+{
+    createTransferEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.Admin));
+}
 
-app.MapPost("/api/v1/transfers/{transferId:guid}/confirm", async (
+var confirmTransferEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}/confirm", async (
     Guid transferId,
     ConfirmTransferRequest request,
     ITransferOrderRepository transfers,
@@ -395,8 +461,12 @@ app.MapPost("/api/v1/transfers/{transferId:guid}/confirm", async (
 
     return Results.Ok(result);
 });
+if (requireAuthorization)
+{
+    confirmTransferEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.Admin));
+}
 
-app.MapGet("/api/v1/transfers/{transferId:guid}/confirmation-challenge", async (
+var confirmationChallengeEndpoint = app.MapGet("/api/v1/transfers/{transferId:guid}/confirmation-challenge", async (
     Guid transferId,
     ITransferOrderRepository transfers,
     ICryptoService crypto,
@@ -423,8 +493,12 @@ app.MapGet("/api/v1/transfers/{transferId:guid}/confirmation-challenge", async (
         productionCrypto = "HSM/KMS or certified GOST/SKZI provider through ICryptoService"
     });
 });
+if (requireAuthorization)
+{
+    confirmationChallengeEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.Admin));
+}
 
-app.MapGet("/api/v1/transfers/{transferId:guid}", async (
+var transferDetailsEndpoint = app.MapGet("/api/v1/transfers/{transferId:guid}", async (
     Guid transferId,
     ITransferOrderRepository transfers,
     CancellationToken cancellationToken) =>
@@ -440,8 +514,12 @@ app.MapGet("/api/v1/transfers/{transferId:guid}", async (
         transfer = ToTransferView(transfer)
     });
 });
+if (requireAuthorization)
+{
+    transferDetailsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
+}
 
-app.MapPost("/api/v1/transfers/{transferId:guid}/unauthorized-claim", async (
+var unauthorizedClaimEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}/unauthorized-claim", async (
     Guid transferId,
     ITransferOrderRepository transfers,
     IAuditService audit,
@@ -462,6 +540,10 @@ app.MapPost("/api/v1/transfers/{transferId:guid}/unauthorized-claim", async (
 
     return Results.Accepted($"/api/v1/transfers/{transfer.Id}", new { transfer.Id, transfer.Status });
 });
+if (requireAuthorization)
+{
+    unauthorizedClaimEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin));
+}
 
 app.MapGet("/api/v1/cabinets", () => Results.Ok(new[]
 {

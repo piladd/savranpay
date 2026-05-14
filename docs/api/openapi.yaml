@@ -46,6 +46,12 @@ paths:
           description: Application dependencies are ready
         "503":
           description: Dependency is unavailable
+  /metrics:
+    get:
+      summary: Prometheus-compatible metrics
+      responses:
+        "200":
+          description: Metrics in text/plain format
   /api/v1/transfers:
     post:
       summary: Создать распоряжение на перевод

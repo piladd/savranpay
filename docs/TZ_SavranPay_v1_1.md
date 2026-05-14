@@ -88,10 +88,11 @@ docker compose up --build
 
 - `GET /health/live`;
 - `GET /health/ready`;
+- `GET /metrics` в Prometheus text format;
 - structured JSON logging;
 - Docker healthcheck для backend и PostgreSQL.
 
-Для production-алертов требуется подключение внешней системы мониторинга: Prometheus/Grafana, OpenTelemetry Collector, Sentry или аналог.
+Для production-алертов требуется подключение внешней системы мониторинга к `/health/ready` и `/metrics`: Prometheus/Grafana, OpenTelemetry Collector, Sentry или аналог.
 
 ## 9. Frontend и публикация
 
@@ -102,3 +103,5 @@ VITE_API_BASE_URL=https://<public-backend-url>
 ```
 
 Ссылка `https://savranpay.netlify.app` будет рабочей только при опубликованном публичном backend URL.
+
+В репозитории добавлены `netlify.toml`, `render.yaml` и инструкция `docs/operations/public-domain-deployment.md`, чтобы после деплоя связать frontend с публичным backend-доменом.

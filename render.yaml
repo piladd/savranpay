@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: savranpay-backend
+    runtime: docker
+    dockerfilePath: ./src/BankTransfers.Api/Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /health/ready
+    envVars:
+      - key: ASPNETCORE_URLS
+        value: http://+:8080
+      - key: DISABLE_HTTPS_REDIRECTION
+        value: "true"
+      - key: ConnectionStrings__Postgres
+        fromDatabase:
+          name: savranpay-postgres
+          property: connectionString
+      - key: Jwt__RequireAuthorization
+        value: "true"
+      - key: Jwt__SigningKey
+        generateValue: true
+
+  - type: worker
+    name: savranpay-worker
+    runtime: docker
+    dockerfilePath: ./src/BankTransfers.Workers/Dockerfile
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: ConnectionStrings__Postgres
+        fromDatabase:
+          name: savranpay-postgres
+          property: connectionString
+
+databases:
+  - name: savranpay-postgres
+    plan: starter
