@@ -186,6 +186,44 @@ h1 {
 .transfer-grid, .two { grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); }
 .wide { grid-column: 1 / -1; }
 
+.client-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.client-profile {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+}
+
+.client-profile h2 {
+  margin: 4px 0 6px;
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.client-profile p {
+  margin: 3px 0;
+  color: var(--muted);
+}
+
+.section-label,
+.readonly-label {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .auth-layout {
   display: grid;
   grid-template-columns: minmax(320px, 430px) minmax(280px, 1fr);
@@ -296,6 +334,31 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.readonly-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, .55fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  align-items: baseline;
+}
+
+.readonly-grid span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.readonly-grid b {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.form-summary {
+  background: #f4faf8;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -312,8 +375,11 @@ h1 {
 }
 
 .badge.success { background: #e7f5eb; color: #1d7032; }
+.badge.info { background: #e8f0ff; color: #2552a8; }
 .badge.warn { background: #fff3df; color: var(--amber); }
 .badge.danger { background: #fde9eb; color: var(--red); }
+.badge.disputed { background: #fff0e8; color: #b4551a; }
+.badge.neutral { background: #eef1f3; color: #56636a; }
 
 form { display: grid; gap: 12px; }
 
@@ -324,16 +390,17 @@ label {
   font-weight: 700;
 }
 
-input, select {
+input, select, textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 11px 12px;
   background: #fbfdfd;
   color: var(--ink);
+  resize: vertical;
 }
 
-input:focus, select:focus {
+input:focus, select:focus, textarea:focus {
   outline: 3px solid #bce6de;
   border-color: var(--accent);
 }
@@ -370,7 +437,10 @@ input:focus, select:focus {
 }
 
 .compact .row { grid-template-columns: 1.5fr 1fr 1fr; }
-.users-table .row { grid-template-columns: 1.4fr 1.4fr .8fr 1fr auto; }
+.transfers-table .row { grid-template-columns: 1.05fr 1fr 1.05fr .8fr .95fr 1.15fr 1.2fr; }
+.support-table .row { grid-template-columns: 1fr 1.15fr 1.2fr .8fr .9fr 1.1fr .55fr .75fr; }
+.review-table .row { grid-template-columns: 1fr .9fr .8fr 1.2fr .75fr 1.2fr .7fr; }
+.users-table .row { grid-template-columns: 1.25fr 1.2fr .8fr .9fr .95fr auto; }
 .row span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -386,6 +456,24 @@ input:focus, select:focus {
   font-weight: 800;
 }
 
+.row-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.row-actions .ghost {
+  padding: 8px 10px;
+  min-height: 34px;
+}
+
+.support-tools {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
 .timeline {
   display: grid;
   gap: 10px;
@@ -399,6 +487,34 @@ input:focus, select:focus {
   padding: 10px 12px;
   display: grid;
   gap: 5px;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.details-grid section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfdfc;
+}
+
+.details-grid h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.wide-detail {
+  grid-column: 1 / -1;
+}
+
+.compact-timeline,
+.status-timeline,
+.audit-timeline {
+  max-height: none;
 }
 
 .decision-list {
@@ -450,8 +566,18 @@ pre {
   }
   nav { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .overview-grid, .transfer-grid, .two, .auth-layout, .stats-strip { grid-template-columns: 1fr; }
+  .client-profile, .profile-badges { align-items: stretch; flex-direction: column; justify-content: flex-start; }
+  .support-tools, .details-grid { grid-template-columns: 1fr; }
+  .wide-detail { grid-column: auto; }
   .topbar { align-items: stretch; flex-direction: column; }
   .profile { text-align: left; }
-  .row, .compact .row, .users-table .row { grid-template-columns: 1fr; }
+  .row,
+  .compact .row,
+  .users-table .row,
+  .transfers-table .row,
+  .support-table .row,
+  .review-table .row {
+    grid-template-columns: 1fr;
+  }
   .shell { padding: 20px; }
 }
