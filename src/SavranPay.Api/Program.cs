@@ -67,6 +67,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy("SavranPayFrontend", policy =>
     {
         policy.WithOrigins(frontendOrigins)
+            .SetIsOriginAllowed(origin =>
+                Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
+                (frontendOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase) ||
+                 uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)))
             .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id")
             .WithMethods("GET", "POST", "OPTIONS");
     });
