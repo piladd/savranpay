@@ -16,8 +16,11 @@ public sealed class InMemoryTransferOrderRepository : ITransferOrderRepository
 
     public Task<TransferOrder?> GetByIdAsync(Guid transferId, CancellationToken cancellationToken)
     {
-        _store.Transfers.TryGetValue(transferId, out var transfer);
-        return Task.FromResult(transfer);
+        lock (_store.SyncRoot)
+        {
+            _store.Transfers.TryGetValue(transferId, out var transfer);
+            return Task.FromResult(transfer);
+        }
     }
 
     public Task<TransferOrder?> FindByIdempotencyKeyAsync(
@@ -25,16 +28,24 @@ public sealed class InMemoryTransferOrderRepository : ITransferOrderRepository
         IdempotencyKey idempotencyKey,
         CancellationToken cancellationToken)
     {
-        var transfer = _store.Transfers.Values.FirstOrDefault(item =>
-            item.CustomerId == customerId &&
-            item.IdempotencyKey.Value == idempotencyKey.Value);
+        TransferOrder? transfer;
+        lock (_store.SyncRoot)
+        {
+            transfer = _store.Transfers.Values.FirstOrDefault(item =>
+                item.CustomerId == customerId &&
+                item.IdempotencyKey.Value == idempotencyKey.Value);
+        }
 
         return Task.FromResult(transfer);
     }
 
     public Task AddAsync(TransferOrder transfer, CancellationToken cancellationToken)
     {
-        _store.Transfers[transfer.Id] = transfer;
+        lock (_store.SyncRoot)
+        {
+            _store.Transfers[transfer.Id] = transfer;
+        }
+
         return Task.CompletedTask;
     }
 }

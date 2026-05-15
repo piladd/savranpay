@@ -14,14 +14,18 @@ public sealed class ConsoleAuditService : IAuditService
 
     public Task WriteAsync(Guid operationId, string eventType, string message, CancellationToken cancellationToken)
     {
-        _store.AuditEvents.Add(new DemoAuditEvent(
-            Guid.NewGuid(),
-            operationId,
-            eventType,
-            message,
-            DateTimeOffset.UtcNow));
+        var now = DateTimeOffset.UtcNow;
+        lock (_store.SyncRoot)
+        {
+            _store.AuditEvents.Add(new DemoAuditEvent(
+                Guid.NewGuid(),
+                operationId,
+                eventType,
+                message,
+                now));
+        }
 
-        Console.WriteLine($"{DateTimeOffset.UtcNow:o} Operation={operationId} Event={eventType} Message={message}");
+        Console.WriteLine($"{now:o} Operation={operationId} Event={eventType} Message={message}");
 
         return Task.CompletedTask;
     }

@@ -20,13 +20,16 @@ public sealed class SimpleFraudService : IFraudService
             ? FraudDecision.MediumRisk
             : FraudDecision.LowRisk;
 
-        _store.RiskChecks.Add(new DemoRiskCheck(
-            Guid.NewGuid(),
-            transfer.Id,
-            "Fraud",
-            decision.ToString(),
-            "Учтены сумма, новый получатель, устройство и частота операций.",
-            DateTimeOffset.UtcNow));
+        lock (_store.SyncRoot)
+        {
+            _store.RiskChecks.Add(new DemoRiskCheck(
+                Guid.NewGuid(),
+                transfer.Id,
+                "Fraud",
+                decision.ToString(),
+                "Amount, recipient, device and operation frequency were checked.",
+                DateTimeOffset.UtcNow));
+        }
 
         return Task.FromResult(decision);
     }

@@ -1,6 +1,7 @@
 using SavranPay.Domain.Accounts;
 using SavranPay.Domain.Transfers;
 using SavranPay.Domain.ValueObjects;
+using System.Collections.Concurrent;
 
 namespace SavranPay.Infrastructure.Demo;
 
@@ -36,11 +37,13 @@ public sealed class DemoBankStore
             AccountStatus.Active);
     }
 
+    public object SyncRoot { get; } = new();
     public DemoCustomer Customer { get; }
-    public Dictionary<Guid, Account> Accounts { get; } = [];
-    public Dictionary<Guid, TransferOrder> Transfers { get; } = [];
+    public ConcurrentDictionary<Guid, Account> Accounts { get; } = [];
+    public ConcurrentDictionary<Guid, TransferOrder> Transfers { get; } = [];
     public List<DemoAuditEvent> AuditEvents { get; } = [];
     public List<DemoRiskCheck> RiskChecks { get; } = [];
+    public List<DemoSupportClaim> SupportClaims { get; } = [];
     public List<DemoLedgerEntry> LedgerEntries { get; } = [];
     public List<DemoNotification> Notifications { get; } = [];
 }

@@ -53,6 +53,7 @@ public sealed class DemoCryptoService : ICryptoService
         }
 
         var now = DateTimeOffset.UtcNow;
+        RemoveExpiredNonces(now);
         if (timestamp.ToUniversalTime() < now.Subtract(AllowedClockSkew) ||
             timestamp.ToUniversalTime() > now.Add(AllowedClockSkew))
         {
@@ -88,5 +89,17 @@ public sealed class DemoCryptoService : ICryptoService
         }
 
         return Task.FromResult(isValid);
+    }
+
+    private void RemoveExpiredNonces(DateTimeOffset now)
+    {
+        var expiresBefore = now.Subtract(AllowedClockSkew);
+        foreach (var item in _usedNonces)
+        {
+            if (item.Value < expiresBefore)
+            {
+                _usedNonces.TryRemove(item.Key, out _);
+            }
+        }
     }
 }

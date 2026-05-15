@@ -16,17 +16,21 @@ public sealed class AllowAllAmlService : IAmlService
 
     public Task<AmlDecision> CheckAsync(TransferOrder transfer, CancellationToken cancellationToken)
     {
-        var decision = transfer.Purpose.Contains("крипто", StringComparison.OrdinalIgnoreCase)
+        var decision = transfer.Purpose.Contains("crypto", StringComparison.OrdinalIgnoreCase) ||
+                       transfer.Purpose.Contains("крипто", StringComparison.OrdinalIgnoreCase)
             ? AmlDecision.ManualReview
             : AmlDecision.Allowed;
 
-        _store.RiskChecks.Add(new DemoRiskCheck(
-            Guid.NewGuid(),
-            transfer.Id,
-            "AML",
-            decision.ToString(),
-            "Проверены идентификация клиента, назначение платежа и базовые риск-признаки.",
-            DateTimeOffset.UtcNow));
+        lock (_store.SyncRoot)
+        {
+            _store.RiskChecks.Add(new DemoRiskCheck(
+                Guid.NewGuid(),
+                transfer.Id,
+                "AML",
+                decision.ToString(),
+                "Customer identification, payment purpose and baseline AML indicators were checked.",
+                DateTimeOffset.UtcNow));
+        }
 
         return Task.FromResult(decision);
     }
