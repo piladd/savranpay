@@ -268,7 +268,14 @@ export async function cancelTransferRequest(transferId: string) {
   })
 }
 
-export async function reportUnauthorizedClaim(transferId: string) {
+export async function reportUnauthorizedClaim(
+  transferId: string,
+  claim: {
+    reason?: string
+    description?: string
+    contactPhone?: string
+  } = {},
+) {
   return request(`/api/v1/transfers/${transferId}/unauthorized-claim`, {
     method: 'POST',
     headers: {
@@ -276,9 +283,9 @@ export async function reportUnauthorizedClaim(transferId: string) {
       'X-Request-Id': crypto.randomUUID(),
     },
     body: JSON.stringify({
-      reason: 'Я не совершал эту операцию',
-      description: 'Операция была замечена после уведомления',
-      contactPhone: '+79990000000',
+      reason: claim.reason ?? 'Я не совершал эту операцию',
+      description: claim.description ?? 'Операция была замечена после уведомления',
+      contactPhone: claim.contactPhone ?? '+79990000000',
     }),
   })
 }
@@ -290,6 +297,26 @@ export async function getAdminUsers() {
 export async function setAdminUserActive(userId: string, isActive: boolean) {
   return request(`/api/v1/admin/users/${userId}/${isActive ? 'unblock' : 'block'}`, {
     method: 'POST',
+    headers: {
+      'X-Request-Id': crypto.randomUUID(),
+    },
+  })
+}
+
+export async function addAdminUserRole(userId: string, role: string) {
+  return request(`/api/v1/admin/users/${userId}/roles`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({ role }),
+  })
+}
+
+export async function removeAdminUserRole(userId: string, role: string) {
+  return request(`/api/v1/admin/users/${userId}/roles/${encodeURIComponent(role)}`, {
+    method: 'DELETE',
     headers: {
       'X-Request-Id': crypto.randomUUID(),
     },

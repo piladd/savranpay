@@ -295,11 +295,45 @@ h1 {
 
 .account strong, .metric-list strong { font-size: 24px; }
 
+.account-title {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: center;
+}
+
 .account-number {
   font-family: Consolas, "SFMono-Regular", monospace;
   font-size: 15px;
   color: #20343a;
   overflow-wrap: anywhere;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef4f5;
+  color: #20343a;
+  padding: 0;
+}
+
+.icon-button:hover {
+  background: #e1eaec;
+  border-color: #c8d7d2;
+}
+
+.eye-icon {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .detail-line {
@@ -471,7 +505,14 @@ input:focus, select:focus, textarea:focus {
 .transfers-table .row { grid-template-columns: 1.05fr 1fr 1.05fr .8fr .95fr 1.15fr 1.2fr; }
 .support-table .row { grid-template-columns: 1fr 1.15fr 1.2fr .8fr .9fr 1.1fr .55fr .75fr; }
 .review-table .row { grid-template-columns: 1fr .9fr .8fr 1.2fr .75fr 1.2fr .7fr; }
-.users-table .row { grid-template-columns: 1.25fr 1.2fr .8fr .9fr .95fr auto; }
+.aml-review-table .row { grid-template-columns: .9fr .85fr .75fr 1.1fr 1.25fr .7fr .8fr .65fr; }
+.fraud-review-table .row { grid-template-columns: .85fr .85fr .7fr 1.05fr .85fr .75fr .7fr .85fr .65fr; }
+.users-table .row { grid-template-columns: 1.05fr .85fr 1.35fr .7fr .85fr .8fr auto; }
+.admin-accounts-table .row { grid-template-columns: 1fr 1.15fr .55fr .8fr .8fr .8fr; }
+.admin-operations-table .row { grid-template-columns: .9fr 1.2fr 1.15fr .75fr .85fr 1fr .65fr; }
+.ledger-table .row { grid-template-columns: .95fr 1.25fr 1fr .75fr .75fr; }
+.audit-events-table .row { grid-template-columns: .95fr .75fr .7fr 1fr 1.15fr 1.5fr .75fr .65fr; }
+.fraud-history-table .row { grid-template-columns: 1fr 1.2fr .8fr .8fr; }
 .row span {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -498,11 +539,54 @@ input:focus, select:focus, textarea:focus {
   min-height: 34px;
 }
 
+.role-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-toggle {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #f8fbfa;
+  color: #4f6269;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.role-toggle.active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-color: #b8d9d0;
+}
+
 .support-tools {
   display: grid;
   grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.support-summary {
+  margin-bottom: 14px;
+}
+
+.service-actions {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.service-actions .actions {
+  align-content: end;
+}
+
+.table-filter {
+  margin-bottom: 12px;
+}
+
+.table-empty {
+  grid-template-columns: 1fr !important;
+  color: var(--muted);
 }
 
 .security-grid {
@@ -641,7 +725,14 @@ pre {
   .users-table .row,
   .transfers-table .row,
   .support-table .row,
-  .review-table .row {
+  .review-table .row,
+  .aml-review-table .row,
+  .fraud-review-table .row,
+  .admin-accounts-table .row,
+  .admin-operations-table .row,
+  .ledger-table .row,
+  .audit-events-table .row,
+  .fraud-history-table .row {
     grid-template-columns: 1fr;
   }
   .shell { padding: 20px; }
