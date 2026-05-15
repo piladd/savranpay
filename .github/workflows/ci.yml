@@ -31,14 +31,25 @@ jobs:
           dotnet test tests/SavranPay.UnitTests/SavranPay.UnitTests.csproj
           --no-build
           --configuration Release
+          --filter "FullyQualifiedName~SavranPay.UnitTests.Unit"
           --logger "trx;LogFileName=unit-results.trx"
+          --results-directory ./test-results
+
+      - name: Contract Tests
+        run: >
+          dotnet test tests/SavranPay.UnitTests/SavranPay.UnitTests.csproj
+          --no-build
+          --configuration Release
+          --filter "FullyQualifiedName~SavranPay.UnitTests.Contract"
+          --logger "trx;LogFileName=contract-results.trx"
           --results-directory ./test-results
 
       - name: Integration Tests
         run: >
-          dotnet test tests/SavranPay.IntegrationTests/SavranPay.IntegrationTests.csproj
+          dotnet test tests/SavranPay.UnitTests/SavranPay.UnitTests.csproj
           --no-build
           --configuration Release
+          --filter "FullyQualifiedName~SavranPay.UnitTests.Integration"
           --logger "trx;LogFileName=integration-results.trx"
           --results-directory ./test-results
 
@@ -86,9 +97,10 @@ jobs:
 
       - name: Security Tests
         run: >
-          dotnet test tests/SavranPay.SecurityTests/SavranPay.SecurityTests.csproj
+          dotnet test tests/SavranPay.UnitTests/SavranPay.UnitTests.csproj
           --no-build
           --configuration Release
+          --filter "FullyQualifiedName~SavranPay.UnitTests.Security"
           --logger "trx;LogFileName=security-results.trx"
           --results-directory ./test-results
 

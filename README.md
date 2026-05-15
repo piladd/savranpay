@@ -45,9 +45,10 @@ frontend/
 
 tests/
   SavranPay.UnitTests
-  SavranPay.IntegrationTests
-  SavranPay.SecurityTests
-  SavranPay.ContractTests
+    Unit
+    Integration
+    Security
+    Contract
 
 docs/
   api
