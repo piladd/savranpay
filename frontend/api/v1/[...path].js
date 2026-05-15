@@ -7,6 +7,8 @@ const users = [
   user('demo-audit', 'audit@savranpay.local', 'Audit123!', 'Auditor', ['Auditor']),
 ]
 
+const sessions = []
+
 const demoAccount = {
   id: 'demo-account-1',
   customerId: 'demo-customer',
@@ -141,9 +143,10 @@ module.exports = async function handler(req, res) {
       }
 
       const authUser = publicUser(found)
+      const session = createSession(req, found.id)
       return res.status(200).json({
         accessToken: tokenFor(authUser),
-        refreshToken: `refresh.${authUser.id}`,
+        refreshToken: `refresh.${authUser.id}.${session.id}`,
         accessTokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         refreshTokenExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         user: authUser,
@@ -152,16 +155,18 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'POST' && route === 'auth/refresh') {
       const body = await readBody(req)
-      const id = String(body.refreshToken || '').replace('refresh.', '')
-      const found = users.find((item) => item.id === id)
-      if (!found) {
+      const parsed = parseRefreshToken(body.refreshToken)
+      const found = users.find((item) => item.id === parsed.userId)
+      const session = sessions.find((item) => item.id === parsed.sessionId && item.userId === parsed.userId && !item.revokedAt)
+      if (!found || !session) {
         return res.status(401).json({ message: 'Refresh token expired.' })
       }
 
+      session.lastSeenAt = new Date().toISOString()
       const authUser = publicUser(found)
       return res.status(200).json({
         accessToken: tokenFor(authUser),
-        refreshToken: `refresh.${authUser.id}`,
+        refreshToken: `refresh.${authUser.id}.${session.id}`,
         accessTokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         refreshTokenExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         user: authUser,
@@ -169,6 +174,13 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === 'POST' && route === 'auth/logout') {
+      const body = await readBody(req)
+      const parsed = parseRefreshToken(body.refreshToken)
+      const session = sessions.find((item) => item.id === parsed.sessionId && item.userId === parsed.userId)
+      if (session) {
+        session.revokedAt = new Date().toISOString()
+        auditEvents.unshift(auditEvent('Logout', parsed.userId, `Сессия ${session.id} завершена`))
+      }
       return res.status(204).end()
     }
 
@@ -177,15 +189,31 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === 'GET' && route === 'auth/sessions') {
-      return res.status(200).json([
-        {
-          id: 'demo-session',
-          ipAddress: 'vercel-edge',
-          userAgent: req.headers['user-agent'] || 'browser',
-          createdAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-        },
-      ])
+      const authUser = currentUser(req)
+      return res.status(200).json(
+        sessions
+          .filter((item) => item.userId === authUser.id)
+          .map(({ userId, ...item }) => item),
+      )
+    }
+
+    if (req.method === 'POST' && route === 'auth/change-password') {
+      const authUser = currentUser(req)
+      const body = await readBody(req)
+      const found = users.find((item) => item.id === authUser.id)
+      if (!found || found.password !== body.currentPassword) {
+        return res.status(400).json({ message: 'Current password is invalid.' })
+      }
+      if (!body.newPassword || String(body.newPassword).length < 8) {
+        return res.status(400).json({ message: 'New password is too short.' })
+      }
+
+      found.password = String(body.newPassword)
+      for (const session of sessions.filter((item) => item.userId === found.id && !item.revokedAt)) {
+        session.revokedAt = new Date().toISOString()
+      }
+      auditEvents.unshift(auditEvent('PasswordChanged', found.id, `Пользователь ${found.login} сменил пароль`))
+      return res.status(204).end()
     }
 
     if (req.method === 'GET' && route === 'dashboard') {
@@ -332,6 +360,22 @@ function user(id, login, password, fullName, roles, customerId) {
   }
 }
 
+function createSession(req, userId) {
+  const now = new Date().toISOString()
+  const session = {
+    id: `session-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    userId,
+    ipAddress: req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'vercel-edge',
+    userAgent: req.headers['user-agent'] || 'browser',
+    createdAt: now,
+    lastSeenAt: now,
+    revokedAt: null,
+  }
+  sessions.unshift(session)
+  auditEvents.unshift(auditEvent('Login', userId, `Создана сессия ${session.id}`))
+  return session
+}
+
 function dashboard() {
   const riskChecks = seededTransfers.flatMap((transfer) => [
     riskCheck(`${transfer.id}-aml`, transfer.id, 'AML', 'Allowed', 'Автоматическая AML-проверка пройдена'),
@@ -432,6 +476,14 @@ function publicUser(item) {
 
 function tokenFor(authUser) {
   return `demo.${Buffer.from(JSON.stringify(authUser)).toString('base64url')}`
+}
+
+function parseRefreshToken(refreshToken) {
+  const parts = String(refreshToken || '').split('.')
+  return {
+    userId: parts[1] || '',
+    sessionId: parts.slice(2).join('.') || '',
+  }
 }
 
 function currentUser(req) {

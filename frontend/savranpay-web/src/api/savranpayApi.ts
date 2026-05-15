@@ -143,6 +143,15 @@ export type RecipientSearchResult = {
   bankName: string
 }
 
+export type UserSessionView = {
+  id: string
+  ipAddress: string
+  userAgent: string
+  createdAt: string
+  lastSeenAt: string
+  revokedAt?: string | null
+}
+
 export type ConfirmationChallenge = {
   id: string
   nonce: string
@@ -181,6 +190,21 @@ export async function login(loginName: string, password: string) {
 
 export async function getCurrentUser() {
   return request<AuthUser>('/api/v1/auth/me')
+}
+
+export async function getSessions() {
+  return request<UserSessionView[]>('/api/v1/auth/sessions')
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return request<void>('/api/v1/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
 }
 
 export async function logout() {

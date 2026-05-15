@@ -505,6 +505,34 @@ input:focus, select:focus, textarea:focus {
   margin-bottom: 14px;
 }
 
+.security-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, .8fr) minmax(320px, 1.2fr);
+  gap: 16px;
+}
+
+.password-form {
+  align-content: start;
+}
+
+.session-list {
+  display: grid;
+  gap: 10px;
+}
+
+.session-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  background: #fbfdfc;
+}
+
+.session-card strong {
+  color: var(--accent-dark);
+}
+
 .timeline {
   display: grid;
   gap: 10px;
@@ -578,6 +606,12 @@ input:focus, select:focus, textarea:focus {
   font-weight: 700;
 }
 
+.success-alert {
+  background: #e7f5eb;
+  color: #1d7032;
+  border-color: #bfe1c8;
+}
+
 pre {
   white-space: pre-wrap;
   word-break: break-word;
@@ -598,7 +632,7 @@ pre {
   nav { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
   .overview-grid, .transfer-grid, .two, .auth-layout, .stats-strip { grid-template-columns: 1fr; }
   .client-profile, .profile-badges { align-items: stretch; flex-direction: column; justify-content: flex-start; }
-  .support-tools, .details-grid { grid-template-columns: 1fr; }
+  .support-tools, .details-grid, .security-grid { grid-template-columns: 1fr; }
   .wide-detail { grid-column: auto; }
   .topbar { align-items: stretch; flex-direction: column; }
   .profile { text-align: left; }

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   cancelTransferRequest,
+  changePassword,
   confirmTransfer,
   createTransfer,
   getAccessToken,
@@ -9,6 +10,7 @@ import {
   getConfirmationChallenge,
   getCurrentUser,
   getDashboard,
+  getSessions,
   login,
   logout,
   recordRiskDecision,
@@ -21,6 +23,7 @@ import {
   type DashboardView,
   type RecipientSearchResult,
   type TransferView,
+  type UserSessionView,
 } from './api/savranpayApi'
 
 const demoSecret = 'savranpay-demo-secret-change-in-production'
@@ -53,10 +56,12 @@ const busy = ref(false)
 const error = ref('')
 const lastChallenge = ref('')
 const recipientSearch = ref('')
+const securityMessage = ref('')
 const serverRecipientMatches = ref<RecipientSearchResult[]>([])
 const selectedTransfer = ref<TransferView | null>(null)
 const dashboard = ref<DashboardView>({ ...emptyDashboard })
 const adminUsers = ref<AdminUserView[]>([])
+const sessions = ref<UserSessionView[]>([])
 const decisionDetails = ref('Проверено вручную, замечания внесены в журнал аудита')
 const reservedTransferIds = ref<Set<string>>(new Set())
 
@@ -94,6 +99,12 @@ const form = ref({
   },
   amountRub: 1500,
   purpose: 'Перевод собственных средств',
+})
+
+const passwordForm = ref({
+  currentPassword: '',
+  newPassword: '',
+  repeatPassword: '',
 })
 
 const activeCabinet = computed(() => cabinets.find((cabinet) => cabinet.path === currentPath.value) ?? cabinets[0])
@@ -179,11 +190,50 @@ async function loadDashboard() {
     null
 
   await loadRoleData()
+  await loadSessions()
 }
 
 async function loadRoleData() {
   if (currentPath.value === '/cabinet/admin' && getAccessToken() && canUseCurrentCabinet.value) {
     adminUsers.value = await getAdminUsers()
+  }
+}
+
+async function loadSessions() {
+  if (!getAccessToken()) {
+    sessions.value = []
+    return
+  }
+
+  sessions.value = await getSessions().catch(() => [])
+}
+
+async function submitPasswordChange() {
+  error.value = ''
+  securityMessage.value = ''
+  if (passwordForm.value.newPassword.length < 8) {
+    error.value = 'Новый пароль должен быть не короче 8 символов.'
+    return
+  }
+  if (passwordForm.value.newPassword !== passwordForm.value.repeatPassword) {
+    error.value = 'Пароли не совпадают.'
+    return
+  }
+
+  busy.value = true
+  try {
+    await changePassword(passwordForm.value.currentPassword, passwordForm.value.newPassword)
+    passwordForm.value = { currentPassword: '', newPassword: '', repeatPassword: '' }
+    securityMessage.value = 'Пароль изменен. Старые refresh-сессии отозваны.'
+    await logout()
+    user.value = null
+    dashboard.value = { ...emptyDashboard }
+    sessions.value = []
+    navigate('/cabinet/client')
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Не удалось сменить пароль.'
+  } finally {
+    busy.value = false
   }
 }
 
@@ -384,6 +434,7 @@ async function signOut() {
   user.value = null
   dashboard.value = { ...emptyDashboard }
   adminUsers.value = []
+  sessions.value = []
   navigate('/cabinet/client')
 }
 
@@ -581,6 +632,7 @@ function transferTimeline(transfer: TransferView) {
     </header>
 
     <section v-if="error" class="alert">{{ error }}</section>
+    <section v-if="securityMessage" class="alert success-alert">{{ securityMessage }}</section>
 
     <section v-if="!getAccessToken()" class="auth-layout">
       <form class="panel login-card" @submit.prevent="submitLogin">
@@ -653,6 +705,31 @@ function transferTimeline(transfer: TransferView) {
                 <span>Зарезервировано</span><b>{{ money(account.reservedBalance) }}</b>
                 <span>Статус</span><b>{{ accountStatusLabel(account.status) }}</b>
               </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel security-panel">
+          <div class="panel-head">
+            <span>Безопасность и сессии</span>
+            <button class="ghost" type="button" @click="loadSessions">Обновить</button>
+          </div>
+          <div class="security-grid">
+            <form class="password-form" @submit.prevent="submitPasswordChange">
+              <label>Текущий пароль <input v-model="passwordForm.currentPassword" autocomplete="current-password" type="password" required /></label>
+              <label>Новый пароль <input v-model="passwordForm.newPassword" autocomplete="new-password" type="password" required /></label>
+              <label>Повтор нового пароля <input v-model="passwordForm.repeatPassword" autocomplete="new-password" type="password" required /></label>
+              <button class="primary" type="submit" :disabled="busy">Сменить пароль</button>
+            </form>
+            <div class="session-list">
+              <div v-for="session in sessions" :key="session.id" class="session-card">
+                <strong>{{ session.revokedAt ? 'Завершена' : 'Активна' }}</strong>
+                <span>{{ session.ipAddress }}</span>
+                <small>{{ session.userAgent }}</small>
+                <small>Создана: {{ date(session.createdAt) }}</small>
+                <small>Последняя активность: {{ date(session.lastSeenAt) }}</small>
+              </div>
+              <p v-if="sessions.length === 0" class="muted">Активные сессии появятся после входа.</p>
             </div>
           </div>
         </article>
