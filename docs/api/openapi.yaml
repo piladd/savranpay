@@ -153,11 +153,85 @@ paths:
       responses:
         "204":
           description: User unblocked
+  /api/v1/admin/users/{userId}/reset-password:
+    post:
+      summary: Reset user password and revoke active sessions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Temporary password issued
+  /api/v1/admin/users/{userId}/limits:
+    post:
+      summary: Change user limits and write an audit event
+      security:
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Limit change accepted
+  /api/v1/admin/transfers/{transferId}/retry:
+    post:
+      summary: Request technical retry for a transfer
+      security:
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Retry request accepted
+  /api/v1/admin/transfers/{transferId}/technical-details:
+    get:
+      summary: Return technical processing details for a transfer
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Risk checks, audit events, ledger and support claims returned
+  /api/v1/support/claims:
+    get:
+      summary: List support claims
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Support claims returned
+  /api/v1/support/transfers/{transferId}/claim:
+    put:
+      summary: Create or update a support claim for a transfer
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportClaimRequest"
+      responses:
+        "200":
+          description: Support claim saved
+  /api/v1/support/claims/{claimId}/comments:
+    post:
+      summary: Add comment to a support claim
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportClaimCommentRequest"
+      responses:
+        "200":
+          description: Comment added
   /api/v1/aml/transfers/{transferId}/decision:
     post:
       summary: Record manual AML decision
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskDecisionRequest"
       responses:
         "202":
           description: AML decision accepted
@@ -166,6 +240,12 @@ paths:
       summary: Record manual fraud decision
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RiskDecisionRequest"
       responses:
         "202":
           description: Fraud decision accepted
@@ -351,4 +431,52 @@ components:
         signature:
           type: string
         nonce:
+          type: string
+    RiskDecisionRequest:
+      type: object
+      required:
+        - decision
+        - details
+      properties:
+        decision:
+          type: string
+          example: ManualReview
+        details:
+          type: string
+        riskFactors:
+          type: array
+          items:
+            type: string
+        blockReason:
+          type: string
+        documentsRequested:
+          type: boolean
+        stepUpRequired:
+          type: boolean
+    SupportClaimRequest:
+      type: object
+      required:
+        - category
+        - comment
+        - contactComment
+        - assignedTo
+        - status
+      properties:
+        category:
+          type: string
+        comment:
+          type: string
+        contactComment:
+          type: string
+        assignedTo:
+          type: string
+          enum: [Support, AML, Fraud, Admin]
+        status:
+          type: string
+    SupportClaimCommentRequest:
+      type: object
+      required:
+        - message
+      properties:
+        message:
           type: string

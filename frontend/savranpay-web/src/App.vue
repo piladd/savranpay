@@ -533,30 +533,23 @@ function upsertSupportClaim(
 async function saveSupportClaim(transferId: string) {
   busy.value = true
   error.value = ''
-  const persistedClaim = await saveSupportClaimRequest(transferId, {
-    status: supportClaimForm.value.status,
-    category: supportClaimForm.value.category,
-    comment: supportClaimForm.value.comment,
-    contactComment: supportClaimForm.value.contactComment,
-    assignedTo: supportClaimForm.value.assignedTo,
-  }).catch((exception) => {
-    error.value = exception instanceof Error ? exception.message : 'Could not save support claim.'
-    return null
-  })
-  if (persistedClaim) {
+  try {
+    const persistedClaim = await saveSupportClaimRequest(transferId, {
+      status: supportClaimForm.value.status,
+      category: supportClaimForm.value.category,
+      comment: supportClaimForm.value.comment,
+      contactComment: supportClaimForm.value.contactComment,
+      assignedTo: supportClaimForm.value.assignedTo,
+    })
     supportClaims.value = [persistedClaim, ...supportClaims.value.filter((item) => item.id !== persistedClaim.id)]
-  } else {
-    busy.value = false
+    securityMessage.value = 'Support claim saved.'
+    await loadDashboard()
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Could not save support claim.'
     return
+  } finally {
+    busy.value = false
   }
-  upsertSupportClaim(transferId, {
-    status: supportClaimForm.value.status,
-    category: supportClaimForm.value.category,
-    comment: supportClaimForm.value.comment,
-    contactComment: supportClaimForm.value.contactComment,
-    assignedTo: supportClaimForm.value.assignedTo,
-  })
-  busy.value = false
   securityMessage.value = 'Обращение поддержки обновлено.'
 }
 
