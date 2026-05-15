@@ -32,6 +32,19 @@ public sealed class TransferOrderTests
         Assert.Equal(TransferStatus.PendingClientConfirmation, transfer.Status);
     }
 
+    [Fact]
+    public void Cancel_RejectsTransferAfterClientConfirmation()
+    {
+        var transfer = CreateTransfer(Money.Rub(100));
+
+        transfer.SubmitForValidation(DateTimeOffset.UtcNow);
+        transfer.MarkValidationPassed(DateTimeOffset.UtcNow);
+        transfer.MarkRiskCheckPassed(DateTimeOffset.UtcNow);
+        transfer.Confirm(DateTimeOffset.UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() => transfer.Cancel(DateTimeOffset.UtcNow));
+    }
+
     private static TransferOrder CreateTransfer(Money amount)
     {
         return TransferOrder.Create(

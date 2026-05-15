@@ -142,6 +142,16 @@ const selectedTransferChecks = computed(() =>
     ? dashboard.value.riskChecks.filter((check) => check.transferId === selectedTransfer.value?.id)
     : [],
 )
+const canConfirmSelectedTransfer = computed(() => selectedTransfer.value?.status === 'PendingClientConfirmation')
+const canCancelSelectedTransfer = computed(() =>
+  ['Draft', 'PendingValidation', 'PendingRiskCheck', 'PendingClientConfirmation'].includes(selectedTransfer.value?.status ?? ''),
+)
+const canDisputeSelectedTransfer = computed(() =>
+  ['Accepted', 'Reserved', 'Processing', 'Settled'].includes(selectedTransfer.value?.status ?? ''),
+)
+const canRepeatSelectedTransfer = computed(() =>
+  ['Settled', 'Failed', 'Cancelled', 'Disputed'].includes(selectedTransfer.value?.status ?? ''),
+)
 
 onMounted(async () => {
   window.addEventListener('popstate', () => {
@@ -340,7 +350,7 @@ async function cancelTransfer(transferId: string) {
   error.value = ''
   const transfer = dashboard.value.transfers.find((item) => item.id === transferId)
   try {
-    await cancelTransferRequest(transferId).catch(() => undefined)
+    await cancelTransferRequest(transferId)
     if (transfer && reservedTransferIds.value.has(transferId)) {
       adjustAccountBalance(transfer.fromAccountId, transfer.amount.minorUnits, -transfer.amount.minorUnits)
       const next = new Set(reservedTransferIds.value)
@@ -443,6 +453,12 @@ function selectTransfer(transfer: TransferView) {
   lastChallenge.value = ''
   if (currentPath.value === '/cabinet/client') {
     window.history.pushState({}, '', `/cabinet/client/transfers/${transfer.id}`)
+  } else if (currentPath.value === '/cabinet/support') {
+    window.history.pushState({}, '', `/cabinet/support/transfers/${transfer.id}`)
+  } else if (currentPath.value === '/cabinet/aml') {
+    window.history.pushState({}, '', `/cabinet/aml/reviews/${transfer.id}`)
+  } else if (currentPath.value === '/cabinet/fraud') {
+    window.history.pushState({}, '', `/cabinet/fraud/reviews/${transfer.id}`)
   }
 }
 
@@ -486,7 +502,7 @@ function date(value: string) {
 
 function statusClass(status: string) {
   if (status === 'Settled') return 'success'
-  if (status === 'Confirmed' || status === 'Processing' || status === 'PendingClientConfirmation') return 'info'
+  if (status === 'Confirmed' || status === 'Accepted' || status === 'Reserved' || status === 'Processing' || status === 'PendingClientConfirmation') return 'info'
   if (status === 'Failed' || status === 'Blocked') return 'danger'
   if (status === 'Disputed') return 'disputed'
   if (status === 'Cancelled') return 'neutral'
@@ -495,10 +511,14 @@ function statusClass(status: string) {
 
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
+    Draft: 'Черновик',
     Created: 'Создан',
     PendingValidation: 'Проверяется',
+    PendingRiskCheck: 'Проверка AML/Fraud',
     PendingClientConfirmation: 'Ожидает подтверждения',
     Confirmed: 'Подтвержден',
+    Accepted: 'Подтвержден',
+    Reserved: 'Зарезервирован',
     Processing: 'Исполняется',
     Settled: 'Исполнен',
     Failed: 'Ошибка',
@@ -506,6 +526,7 @@ function statusLabel(status: string) {
     Blocked: 'Заблокирован',
     ManualReview: 'Ручная проверка',
     Cancelled: 'Отменен',
+    Reversed: 'Возвращен',
   }
   return labels[status] ?? status
 }
@@ -516,11 +537,17 @@ function accountStatusLabel(status: string) {
 }
 
 function accountLabel(account: AccountView) {
-  return `${account.number} · ${money(account.availableBalance)}`
+  return `${account.maskedNumber || maskAccount(account.number)} · ${money(account.availableBalance)}`
 }
 
 function recipientDetails(transfer: TransferView) {
-  return `${transfer.recipient.accountNumber} · БИК ${transfer.recipient.bankBic}`
+  return `${maskAccount(transfer.recipient.accountNumber)} · БИК ${transfer.recipient.bankBic}`
+}
+
+function maskAccount(accountNumber?: string) {
+  if (!accountNumber) return '—'
+  if (accountNumber.length <= 8) return accountNumber
+  return `${accountNumber.slice(0, 4)} **** **** ${accountNumber.slice(-4)}`
 }
 
 function riskSummary(transfer: TransferView) {
@@ -579,12 +606,21 @@ function transferTimeline(transfer: TransferView) {
   if (transfer.status === 'PendingClientConfirmation') {
     items.push({ label: 'Ожидает подтверждения клиента', at: transfer.updatedAt ?? transfer.createdAt })
   }
-  if (['Settled', 'Confirmed', 'Processing'].includes(transfer.status)) {
+  if (['Accepted', 'Reserved', 'Settled', 'Confirmed', 'Processing'].includes(transfer.status)) {
     items.push({ label: 'Клиент подтвердил перевод', at: transfer.updatedAt ?? transfer.createdAt })
+  }
+  if (transfer.status === 'Reserved') {
+    items.push({ label: 'Сумма зарезервирована на счете', at: transfer.updatedAt ?? transfer.createdAt })
+  }
+  if (transfer.status === 'Processing') {
+    items.push({ label: 'Перевод исполняется', at: transfer.updatedAt ?? transfer.createdAt })
+  }
+  if (transfer.status === 'Settled') {
     items.push({ label: 'Перевод исполнен', at: transfer.updatedAt ?? transfer.createdAt })
   }
   if (transfer.status === 'Disputed') items.push({ label: 'Клиент оспорил операцию', at: transfer.updatedAt ?? transfer.createdAt })
   if (transfer.status === 'Cancelled') items.push({ label: 'Перевод отменен до подтверждения', at: transfer.updatedAt ?? transfer.createdAt })
+  if (transfer.status === 'Failed') items.push({ label: 'Ошибка исполнения или проверки', at: transfer.updatedAt ?? transfer.createdAt })
   return items
 }
 </script>
@@ -698,7 +734,7 @@ function transferTimeline(transfer: TransferView) {
           <div class="accounts">
             <div v-for="account in dashboard.accounts" :key="account.id" class="account">
               <span class="readonly-label">Счет</span>
-              <strong class="account-number">{{ account.number }}</strong>
+              <strong class="account-number">{{ account.maskedNumber || maskAccount(account.number) }}</strong>
               <div class="readonly-grid">
                 <span>Валюта</span><b>{{ account.availableBalance.currency }}</b>
                 <span>Доступно</span><b>{{ money(account.availableBalance) }}</b>
@@ -809,24 +845,27 @@ function transferTimeline(transfer: TransferView) {
             <template v-if="selectedTransfer">
               <div class="confirm-card">
                 <div class="detail-line"><b>Получатель</b><span>{{ selectedTransfer.recipient.name }}</span></div>
-                <div class="detail-line"><b>Счет получателя</b><span>{{ selectedTransfer.recipient.accountNumber }}</span></div>
+                <div class="detail-line"><b>Счет получателя</b><span>{{ maskAccount(selectedTransfer.recipient.accountNumber) }}</span></div>
                 <div class="detail-line"><b>БИК</b><span>{{ selectedTransfer.recipient.bankBic }}</span></div>
-                <div class="detail-line"><b>Счет списания</b><span>{{ selectedTransferAccount?.number }}</span></div>
+                <div class="detail-line"><b>Счет списания</b><span>{{ selectedTransferAccount?.maskedNumber || maskAccount(selectedTransferAccount?.number) }}</span></div>
                 <div class="detail-line"><b>Сумма</b><span>{{ money(selectedTransfer.amount) }}</span></div>
                 <div class="detail-line"><b>Комиссия</b><span>{{ minor(0, selectedTransfer.amount.currency) }}</span></div>
                 <div class="detail-line"><b>Итого</b><span>{{ money(selectedTransfer.amount) }}</span></div>
                 <div class="detail-line"><b>Назначение</b><span>{{ selectedTransfer.purpose }}</span></div>
                 <div class="detail-line"><b>Статус</b><span class="badge" :class="statusClass(selectedTransfer.status)">{{ statusLabel(selectedTransfer.status) }}</span></div>
+                <div v-if="lastChallenge" class="detail-line"><b>Payload hash</b><span>{{ JSON.parse(lastChallenge).payloadHash }}</span></div>
+                <div v-if="lastChallenge" class="detail-line"><b>Nonce</b><span>{{ JSON.parse(lastChallenge).nonce }}</span></div>
+                <div v-if="lastChallenge" class="detail-line"><b>Timestamp</b><span>{{ JSON.parse(lastChallenge).timestamp }}</span></div>
               </div>
               <div class="actions">
                 <button
                   class="primary"
-                  :disabled="busy || selectedTransfer.status !== 'PendingClientConfirmation'"
+                  :disabled="busy || !canConfirmSelectedTransfer"
                   @click="signAndConfirm(selectedTransfer.id)"
                 >
                   Подписать и подтвердить
                 </button>
-                <button class="ghost" :disabled="busy || selectedTransfer.status !== 'PendingClientConfirmation'" @click="cancelTransfer(selectedTransfer.id)">
+                <button class="ghost" :disabled="busy || !canCancelSelectedTransfer" @click="cancelTransfer(selectedTransfer.id)">
                   Отмена
                 </button>
               </div>
@@ -843,15 +882,16 @@ function transferTimeline(transfer: TransferView) {
             <div v-for="transfer in dashboard.transfers" :key="transfer.id" class="row">
               <span>{{ date(transfer.createdAt) }}</span>
               <span>{{ transfer.recipient.name }}</span>
-              <span>{{ transfer.recipient.accountNumber }}</span>
+              <span>{{ maskAccount(transfer.recipient.accountNumber) }}</span>
               <strong>{{ money(transfer.amount) }}</strong>
               <span class="badge" :class="statusClass(transfer.status)">{{ statusLabel(transfer.status) }}</span>
               <span>{{ transfer.purpose }}</span>
               <span class="row-actions">
                 <button class="ghost" @click="selectTransfer(transfer)">Открыть</button>
                 <button v-if="transfer.status === 'PendingClientConfirmation'" class="ghost" @click="selectTransfer(transfer)">Подтвердить</button>
-                <button v-if="transfer.status === 'Settled' || transfer.status === 'Processing'" class="ghost" @click="disputeTransfer(transfer.id)">Оспорить</button>
-                <button v-if="transfer.status === 'Settled' || transfer.status === 'Failed' || transfer.status === 'Cancelled'" class="ghost" @click="repeatTransfer(transfer)">Повторить</button>
+                <button v-if="['Accepted', 'Reserved', 'Processing', 'Settled'].includes(transfer.status)" class="ghost" @click="disputeTransfer(transfer.id)">Оспорить</button>
+                <button v-if="['Settled', 'Failed', 'Cancelled', 'Disputed'].includes(transfer.status)" class="ghost" @click="repeatTransfer(transfer)">Повторить</button>
+                <button v-if="['Draft', 'PendingValidation', 'PendingRiskCheck', 'PendingClientConfirmation'].includes(transfer.status)" class="ghost" @click="cancelTransfer(transfer.id)">Отменить</button>
               </span>
             </div>
           </div>
@@ -866,8 +906,10 @@ function transferTimeline(transfer: TransferView) {
                 <span>ID перевода</span><b>{{ selectedTransfer.id }}</b>
                 <span>Дата создания</span><b>{{ date(selectedTransfer.createdAt) }}</b>
                 <span>Дата обновления</span><b>{{ date(selectedTransfer.updatedAt || selectedTransfer.createdAt) }}</b>
-                <span>Статус</span><b>{{ statusLabel(selectedTransfer.status) }}</b>
+                <span>Статус</span><b><span class="badge" :class="statusClass(selectedTransfer.status)">{{ statusLabel(selectedTransfer.status) }}</span></b>
+                <span>Клиент</span><b>{{ dashboard.customer?.fullName || selectedTransfer.customerId }}</b>
                 <span>Сумма</span><b>{{ money(selectedTransfer.amount) }}</b>
+                <span>Валюта</span><b>{{ selectedTransfer.amount.currency }}</b>
                 <span>Назначение</span><b>{{ selectedTransfer.purpose }}</b>
               </div>
             </section>
@@ -876,7 +918,9 @@ function transferTimeline(transfer: TransferView) {
               <div class="readonly-grid">
                 <span>ФИО клиента</span><b>{{ dashboard.customer?.fullName }}</b>
                 <span>Customer ID</span><b>{{ selectedTransfer.customerId }}</b>
-                <span>Счет списания</span><b>{{ selectedTransferAccount?.number }}</b>
+                <span>Счет списания</span><b>{{ selectedTransferAccount?.maskedNumber || maskAccount(selectedTransferAccount?.number) }}</b>
+                <span>Доступно сейчас</span><b>{{ money(selectedTransferAccount?.availableBalance) }}</b>
+                <span>Зарезервировано</span><b>{{ money(selectedTransferAccount?.reservedBalance) }}</b>
               </div>
             </section>
             <section>
@@ -884,8 +928,9 @@ function transferTimeline(transfer: TransferView) {
               <div class="readonly-grid">
                 <span>Тип</span><b>{{ selectedTransfer.recipient.type }}</b>
                 <span>Имя</span><b>{{ selectedTransfer.recipient.name }}</b>
-                <span>Счет</span><b>{{ selectedTransfer.recipient.accountNumber }}</b>
+                <span>Счет</span><b>{{ maskAccount(selectedTransfer.recipient.accountNumber) }}</b>
                 <span>БИК</span><b>{{ selectedTransfer.recipient.bankBic }}</b>
+                <span>Банк получателя</span><b>SavranPay Банк</b>
               </div>
             </section>
             <section>
@@ -908,6 +953,18 @@ function transferTimeline(transfer: TransferView) {
                   <strong>{{ date(item.at) }}</strong>
                   <span>{{ item.label }}</span>
                 </div>
+              </div>
+            </section>
+            <section class="wide-detail">
+              <h3>Действия</h3>
+              <div class="actions">
+                <button class="primary" :disabled="busy || !canConfirmSelectedTransfer" @click="signAndConfirm(selectedTransfer.id)">
+                  Подтвердить
+                </button>
+                <button class="ghost" :disabled="busy || !canCancelSelectedTransfer" @click="cancelTransfer(selectedTransfer.id)">Отменить</button>
+                <button class="ghost" :disabled="busy || !canDisputeSelectedTransfer" @click="disputeTransfer(selectedTransfer.id)">Оспорить</button>
+                <button class="ghost" :disabled="busy || !canRepeatSelectedTransfer" @click="repeatTransfer(selectedTransfer)">Повторить как новый</button>
+                <button class="ghost" :disabled="selectedTransfer.status !== 'Settled'">Скачать чек</button>
               </div>
             </section>
           </div>
@@ -979,6 +1036,85 @@ function transferTimeline(transfer: TransferView) {
           </div>
         </article>
       </section>
+
+      <article v-if="selectedTransfer && currentPath !== '/cabinet/client' && currentPath !== '/cabinet/admin' && currentPath !== '/cabinet/audit'" class="panel transfer-details">
+        <div class="panel-head">
+          <span>Карточка перевода</span>
+          <small>{{ currentPath === '/cabinet/support' ? '/cabinet/support/transfers/' : currentPath === '/cabinet/aml' ? '/cabinet/aml/reviews/' : '/cabinet/fraud/reviews/' }}{{ selectedTransfer.id }}</small>
+        </div>
+        <div class="details-grid">
+          <section>
+            <h3>Основная информация</h3>
+            <div class="readonly-grid">
+              <span>ID перевода</span><b>{{ selectedTransfer.id }}</b>
+              <span>Дата создания</span><b>{{ date(selectedTransfer.createdAt) }}</b>
+              <span>Дата обновления</span><b>{{ date(selectedTransfer.updatedAt || selectedTransfer.createdAt) }}</b>
+              <span>Статус</span><b><span class="badge" :class="statusClass(selectedTransfer.status)">{{ statusLabel(selectedTransfer.status) }}</span></b>
+              <span>Клиент</span><b>{{ dashboard.customer?.fullName || selectedTransfer.customerId }}</b>
+              <span>Сумма</span><b>{{ money(selectedTransfer.amount) }}</b>
+              <span>Назначение</span><b>{{ selectedTransfer.purpose }}</b>
+            </div>
+          </section>
+          <section>
+            <h3>Получатель</h3>
+            <div class="readonly-grid">
+              <span>Тип</span><b>{{ selectedTransfer.recipient.type }}</b>
+              <span>Имя</span><b>{{ selectedTransfer.recipient.name }}</b>
+              <span>Счет</span><b>{{ maskAccount(selectedTransfer.recipient.accountNumber) }}</b>
+              <span>БИК</span><b>{{ selectedTransfer.recipient.bankBic }}</b>
+              <span>Банк</span><b>SavranPay Банк</b>
+            </div>
+          </section>
+          <section>
+            <h3>Отправитель</h3>
+            <div class="readonly-grid">
+              <span>Customer ID</span><b>{{ selectedTransfer.customerId }}</b>
+              <span>Счет списания</span><b>{{ selectedTransferAccount?.maskedNumber || maskAccount(selectedTransferAccount?.number) }}</b>
+              <span>Доступно сейчас</span><b>{{ money(selectedTransferAccount?.availableBalance) }}</b>
+              <span>Зарезервировано</span><b>{{ money(selectedTransferAccount?.reservedBalance) }}</b>
+            </div>
+          </section>
+          <section>
+            <h3>Проверки</h3>
+            <div class="timeline compact-timeline">
+              <div v-for="check in selectedTransferChecks" :key="check.id">
+                <strong>{{ check.checkType }} · {{ check.decision }}</strong>
+                <span>{{ check.details }}</span>
+                <small>{{ date(check.createdAt) }}</small>
+              </div>
+              <div v-if="selectedTransferChecks.length === 0">
+                <strong>Проверка безопасности</strong>
+                <span>Решения AML/Fraud еще не записаны.</span>
+              </div>
+            </div>
+          </section>
+          <section class="wide-detail">
+            <h3>Действия</h3>
+            <div v-if="currentPath === '/cabinet/support'" class="support-tools service-actions">
+              <label>Статус обращения <select><option>Открыто</option><option>Передано в AML</option><option>Передано в Fraud</option><option>Передано администратору</option></select></label>
+              <label>Комментарий поддержки <input placeholder="Комментарий к спору или обращению" /></label>
+            </div>
+            <div v-if="currentPath === '/cabinet/aml' || currentPath === '/cabinet/fraud'" class="actions">
+              <button class="ghost" :disabled="busy" @click="submitRiskDecision(selectedTransfer, 'Allow')">Разрешить</button>
+              <button class="ghost" :disabled="busy" @click="submitRiskDecision(selectedTransfer, 'ManualReview')">
+                {{ currentPath === '/cabinet/aml' ? 'Ручная проверка' : 'Step-up' }}
+              </button>
+              <button class="ghost danger-action" :disabled="busy" @click="submitRiskDecision(selectedTransfer, 'Block')">Заблокировать</button>
+              <button v-if="currentPath === '/cabinet/aml'" class="ghost" :disabled="busy">Запросить документы</button>
+              <button v-if="currentPath === '/cabinet/fraud'" class="ghost" :disabled="busy">Передать в поддержку</button>
+            </div>
+          </section>
+          <section class="wide-detail">
+            <h3>История статусов</h3>
+            <div class="timeline status-timeline">
+              <div v-for="item in transferTimeline(selectedTransfer)" :key="item.label">
+                <strong>{{ date(item.at) }}</strong>
+                <span>{{ item.label }}</span>
+              </div>
+            </div>
+          </section>
+        </div>
+      </article>
 
       <section v-if="currentPath === '/cabinet/admin'" class="grid overview-grid">
         <article class="panel wide">

@@ -454,7 +454,13 @@ var dashboardEndpoint = app.MapGet("/api/v1/dashboard", async (
 });
 if (requireAuthorization)
 {
-    dashboardEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
+    dashboardEndpoint.RequireAuthorization(policy => policy.RequireRole(
+        SavranPayRole.Customer,
+        SavranPayRole.SupportOperator,
+        SavranPayRole.AmlOfficer,
+        SavranPayRole.FraudOfficer,
+        SavranPayRole.Admin,
+        SavranPayRole.Auditor));
 }
 
 var accountsEndpoint = app.MapGet("/api/v1/accounts", async (IServiceProvider services, HttpContext httpContext, CancellationToken cancellationToken) =>
@@ -672,6 +678,46 @@ if (requireAuthorization)
     confirmationChallengeEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.Admin));
 }
 
+var cancelTransferEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}/cancel", async (
+    Guid transferId,
+    HttpContext httpContext,
+    ITransferOrderRepository transfers,
+    IAuditService audit,
+    IUnitOfWork unitOfWork,
+    IClock clock,
+    CancellationToken cancellationToken) =>
+{
+    var transfer = await transfers.GetByIdAsync(transferId, cancellationToken);
+    if (transfer is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!CanAccessTransfer(httpContext, transfer.CustomerId, requireAuthorization, SavranPayRole.Admin))
+    {
+        return Results.Forbid();
+    }
+
+    try
+    {
+        transfer.Cancel(clock.UtcNow);
+    }
+    catch (InvalidOperationException exception)
+    {
+        return Results.BadRequest(exception.Message);
+    }
+
+    await transfers.AddAsync(transfer, cancellationToken);
+    await audit.WriteAsync(transfer.Id, "TransferCancelled", "Client cancelled transfer before confirmation.", cancellationToken);
+    await unitOfWork.SaveChangesAsync(cancellationToken);
+
+    return Results.Accepted($"/api/v1/transfers/{transfer.Id}", new { transfer.Id, transfer.Status });
+});
+if (requireAuthorization)
+{
+    cancelTransferEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.Admin));
+}
+
 var transferDetailsEndpoint = app.MapGet("/api/v1/transfers/{transferId:guid}", async (
     Guid transferId,
     HttpContext httpContext,
@@ -684,7 +730,15 @@ var transferDetailsEndpoint = app.MapGet("/api/v1/transfers/{transferId:guid}", 
         return Results.NotFound();
     }
 
-    if (!CanAccessTransfer(httpContext, transfer.CustomerId, requireAuthorization, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor))
+    if (!CanAccessTransfer(
+            httpContext,
+            transfer.CustomerId,
+            requireAuthorization,
+            SavranPayRole.SupportOperator,
+            SavranPayRole.AmlOfficer,
+            SavranPayRole.FraudOfficer,
+            SavranPayRole.Admin,
+            SavranPayRole.Auditor))
     {
         return Results.Forbid();
     }
@@ -696,7 +750,13 @@ var transferDetailsEndpoint = app.MapGet("/api/v1/transfers/{transferId:guid}", 
 });
 if (requireAuthorization)
 {
-    transferDetailsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin, SavranPayRole.Auditor));
+    transferDetailsEndpoint.RequireAuthorization(policy => policy.RequireRole(
+        SavranPayRole.Customer,
+        SavranPayRole.SupportOperator,
+        SavranPayRole.AmlOfficer,
+        SavranPayRole.FraudOfficer,
+        SavranPayRole.Admin,
+        SavranPayRole.Auditor));
 }
 
 var unauthorizedClaimEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}/unauthorized-claim", async (

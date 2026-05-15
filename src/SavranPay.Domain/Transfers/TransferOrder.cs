@@ -155,6 +155,17 @@ public sealed class TransferOrder : Entity
         UpdatedAt = now;
     }
 
+    public void Cancel(DateTimeOffset now)
+    {
+        if (Status is not (TransferStatus.Draft or TransferStatus.PendingValidation or TransferStatus.PendingRiskCheck or TransferStatus.PendingClientConfirmation))
+        {
+            throw new InvalidOperationException("Transfer cannot be cancelled after client confirmation.");
+        }
+
+        Status = TransferStatus.Cancelled;
+        UpdatedAt = now;
+    }
+
     public void Fail(DateTimeOffset now)
     {
         if (Status is TransferStatus.Settled or TransferStatus.Reversed)
