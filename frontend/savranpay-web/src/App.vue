@@ -35,7 +35,7 @@ import {
 
 type SupportClaim = SupportClaimView
 
-const demoSecret = 'savranpay-demo-secret-change-in-production'
+const demoSecret = import.meta.env.VITE_DEMO_TRANSFER_SECRET?.trim() ?? ''
 
 const cabinets = [
   { path: '/cabinet/client', title: 'Клиент', role: 'Customer', icon: 'К' },
@@ -695,6 +695,10 @@ async function toggleAdminRole(item: AdminUserView, role: string) {
 }
 
 async function signPayload(payload: string) {
+  if (!demoSecret) {
+    throw new Error('Demo transfer signing is disabled: set VITE_DEMO_TRANSFER_SECRET for the training stand.')
+  }
+
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
     'raw',

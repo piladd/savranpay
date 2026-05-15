@@ -59,6 +59,7 @@ if (frontendOrigins.Length == 0)
         "http://localhost:5173",
         "https://127.0.0.1:5173",
         "http://127.0.0.1:5173",
+        "https://savranpay.vercel.app",
         "https://savranpay.netlify.app"
     ];
 }
@@ -68,10 +69,6 @@ builder.Services.AddCors(options =>
     options.AddPolicy("SavranPayFrontend", policy =>
     {
         policy.WithOrigins(frontendOrigins)
-            .SetIsOriginAllowed(origin =>
-                Uri.TryCreate(origin, UriKind.Absolute, out var uri) &&
-                (frontendOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase) ||
-                 uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)))
             .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id")
             .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
     });
@@ -162,8 +159,8 @@ app.Use(async (context, next) =>
     var connectSources = string.Join(" ", frontendOrigins);
     context.Response.Headers.ContentSecurityPolicy =
         "default-src 'self'; " +
-        "script-src 'self' https://unpkg.com 'unsafe-eval'; " +
-        "style-src 'self' 'unsafe-inline'; " +
+        "script-src 'self'; " +
+        "style-src 'self'; " +
         "img-src 'self' data:; " +
         $"connect-src 'self' {connectSources}; " +
         "font-src 'self'; " +

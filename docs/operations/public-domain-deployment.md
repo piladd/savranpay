@@ -102,6 +102,7 @@ Netlify frontend:
 
 ```text
 VITE_API_BASE_URL=https://savranpay.onrender.com
+VITE_DEMO_TRANSFER_SECRET=<training-demo-secret>
 ```
 
 ## Optional Vercel frontend
@@ -122,12 +123,14 @@ Environment variable:
 
 ```text
 VITE_API_BASE_URL=https://<actual-render-backend-url>
+VITE_DEMO_TRANSFER_SECRET=<training-demo-secret>
 ```
 
 For the current Vercel deployment, set:
 
 ```text
 VITE_API_BASE_URL=https://savranpay.onrender.com
+VITE_DEMO_TRANSFER_SECRET=<same-demo-secret-as-backend-training-stand>
 ```
 
 If Render gives another service URL, use that exact URL instead. After changing the Vercel environment variable, redeploy the frontend.

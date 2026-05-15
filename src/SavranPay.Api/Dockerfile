@@ -4,7 +4,9 @@ COPY frontend/savranpay-web/package*.json ./
 RUN npm ci
 COPY frontend/savranpay-web ./
 ARG VITE_API_BASE_URL=
+ARG VITE_DEMO_TRANSFER_SECRET=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+ENV VITE_DEMO_TRANSFER_SECRET=$VITE_DEMO_TRANSFER_SECRET
 RUN npm run build
 
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build

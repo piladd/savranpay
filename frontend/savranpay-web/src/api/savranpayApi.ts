@@ -1,6 +1,5 @@
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
-const isVercelHost = typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
-const API_BASE_URL = configuredApiBaseUrl && configuredApiBaseUrl !== 'auto' && !isVercelHost ? configuredApiBaseUrl : ''
+const API_BASE_URL = configuredApiBaseUrl && configuredApiBaseUrl !== 'auto' ? configuredApiBaseUrl : ''
 const ACCESS_TOKEN_KEY = 'savranpay.accessToken'
 const REFRESH_TOKEN_KEY = 'savranpay.refreshToken'
 
