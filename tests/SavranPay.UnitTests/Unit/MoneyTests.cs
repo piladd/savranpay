@@ -1,7 +1,7 @@
 using SavranPay.Domain.ValueObjects;
 using Xunit;
 
-namespace SavranPay.UnitTests;
+namespace SavranPay.UnitTests.Unit;
 
 public sealed class MoneyTests
 {

@@ -16,12 +16,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SavranPay.SharedKernel", "s
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SavranPay.UnitTests", "tests\SavranPay.UnitTests\SavranPay.UnitTests.csproj", "{960DE32D-6F5A-454E-B63A-795535D2C63B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SavranPay.IntegrationTests", "tests\SavranPay.IntegrationTests\SavranPay.IntegrationTests.csproj", "{B7F2F1F0-6D37-49E5-ACDD-3796616A084E}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SavranPay.SecurityTests", "tests\SavranPay.SecurityTests\SavranPay.SecurityTests.csproj", "{DFA85F7B-88C3-46EF-A5A7-05B31F377D80}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SavranPay.ContractTests", "tests\SavranPay.ContractTests\SavranPay.ContractTests.csproj", "{5F36D4B3-AB26-49C4-B4A2-4759D581FD17}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -56,17 +50,5 @@ Global
 		{960DE32D-6F5A-454E-B63A-795535D2C63B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{960DE32D-6F5A-454E-B63A-795535D2C63B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{960DE32D-6F5A-454E-B63A-795535D2C63B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{B7F2F1F0-6D37-49E5-ACDD-3796616A084E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B7F2F1F0-6D37-49E5-ACDD-3796616A084E}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B7F2F1F0-6D37-49E5-ACDD-3796616A084E}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B7F2F1F0-6D37-49E5-ACDD-3796616A084E}.Release|Any CPU.Build.0 = Release|Any CPU
-		{DFA85F7B-88C3-46EF-A5A7-05B31F377D80}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DFA85F7B-88C3-46EF-A5A7-05B31F377D80}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DFA85F7B-88C3-46EF-A5A7-05B31F377D80}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DFA85F7B-88C3-46EF-A5A7-05B31F377D80}.Release|Any CPU.Build.0 = Release|Any CPU
-		{5F36D4B3-AB26-49C4-B4A2-4759D581FD17}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{5F36D4B3-AB26-49C4-B4A2-4759D581FD17}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{5F36D4B3-AB26-49C4-B4A2-4759D581FD17}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{5F36D4B3-AB26-49C4-B4A2-4759D581FD17}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

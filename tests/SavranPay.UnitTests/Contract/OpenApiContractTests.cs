@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace SavranPay.ContractTests;
+namespace SavranPay.UnitTests.Contract;
 
 public sealed class OpenApiContractTests
 {
@@ -15,8 +15,14 @@ public sealed class OpenApiContractTests
         var yaml = File.ReadAllText(openApiPath);
         Assert.Contains("/api/v1/transfers", yaml);
         Assert.Contains("/api/v1/transfers/{transferId}/confirm", yaml);
+        Assert.Contains("/api/v1/support/transfers/{transferId}/claim", yaml);
+        Assert.Contains("/api/v1/support/claims/{claimId}/comments", yaml);
+        Assert.Contains("/api/v1/admin/transfers/{transferId}/technical-details", yaml);
+        Assert.Contains("/api/v1/admin/transfers/{transferId}/retry", yaml);
         Assert.Contains("Idempotency-Key", yaml);
         Assert.Contains("ConfirmTransferRequest", yaml);
+        Assert.Contains("SupportClaimRequest", yaml);
+        Assert.Contains("RiskDecisionRequest", yaml);
     }
 
     private static string FindRepositoryRoot()

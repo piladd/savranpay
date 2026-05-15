@@ -5,7 +5,7 @@ using SavranPay.Domain.ValueObjects;
 using SavranPay.Infrastructure.Crypto;
 using Xunit;
 
-namespace SavranPay.SecurityTests;
+namespace SavranPay.UnitTests.Security;
 
 public sealed class SecurityChecklistTests
 {
@@ -45,9 +45,9 @@ public sealed class SecurityChecklistTests
         var transfer = TransferOrder.Create(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            Recipient.Create("Account", "40817810000000000002", "044525225", "Иван Петров"),
+            Recipient.Create("Account", "40817810000000000002", "044525225", "РРІР°РЅ РџРµС‚СЂРѕРІ"),
             Money.Rub(150000),
-            "Перевод собственных средств",
+            "РџРµСЂРµРІРѕРґ СЃРѕР±СЃС‚РІРµРЅРЅС‹С… СЃСЂРµРґСЃС‚РІ",
             new IdempotencyKey(Guid.NewGuid().ToString("N")),
             DateTimeOffset.UtcNow);
 

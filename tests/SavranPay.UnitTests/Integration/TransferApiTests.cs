@@ -1,11 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
-namespace SavranPay.IntegrationTests;
+namespace SavranPay.UnitTests.Integration;
 
 public sealed class TransferApiTests
 {
@@ -25,14 +26,14 @@ public sealed class TransferApiTests
                 type = "Account",
                 accountNumber = "40817810000000000002",
                 bankBic = "044525225",
-                name = "Иван Петров"
+                name = "РРІР°РЅ РџРµС‚СЂРѕРІ"
             },
             amount = new
             {
                 minorUnits = 150000,
                 currency = "RUB"
             },
-            purpose = "Перевод собственных средств"
+            purpose = "РџРµСЂРµРІРѕРґ СЃРѕР±СЃС‚РІРµРЅРЅС‹С… СЃСЂРµРґСЃС‚РІ"
         });
 
         using var response = await client.SendAsync(request);
@@ -122,6 +123,58 @@ public sealed class TransferApiTests
         Assert.Equal(Guid.Parse("11111111-1111-1111-1111-111111111111"), dashboard.Customer.Id);
     }
 
+    [Fact]
+    public async Task UnauthorizedClaim_CreatesSupportClaimInDashboard()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+
+        var transferId = await CreateDemoTransferAsync(client);
+
+        using var response = await client.PostAsJsonAsync($"/api/v1/transfers/{transferId}/unauthorized-claim", new
+        {
+            reason = "Unauthorized transfer",
+            description = "Client disputes the operation.",
+            contactPhone = "+79990000000"
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+
+        using var dashboardResponse = await client.GetAsync("/api/v1/dashboard");
+        dashboardResponse.EnsureSuccessStatusCode();
+        await using var stream = await dashboardResponse.Content.ReadAsStreamAsync();
+        using var dashboard = await JsonDocument.ParseAsync(stream);
+        var supportClaims = dashboard.RootElement.GetProperty("supportClaims");
+
+        Assert.Equal(JsonValueKind.Array, supportClaims.ValueKind);
+        Assert.Contains(supportClaims.EnumerateArray(), claim =>
+            claim.GetProperty("transferId").GetGuid() == transferId &&
+            claim.GetProperty("assignedTo").GetString() == "Support");
+    }
+
+    [Fact]
+    public async Task AdminTransferActions_RecordRetryAndReturnTechnicalDetails()
+    {
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var transferId = await CreateDemoTransferAsync(client);
+
+        using var retryResponse = await client.PostAsJsonAsync($"/api/v1/admin/transfers/{transferId}/retry", new
+        {
+            reason = "Integration test retry"
+        });
+
+        Assert.Equal(HttpStatusCode.Accepted, retryResponse.StatusCode);
+
+        using var detailsResponse = await client.GetAsync($"/api/v1/admin/transfers/{transferId}/technical-details");
+
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+        await using var stream = await detailsResponse.Content.ReadAsStreamAsync();
+        using var details = await JsonDocument.ParseAsync(stream);
+
+        Assert.Equal(transferId, details.RootElement.GetProperty("transferId").GetGuid());
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(bool requireAuthorization = false)
     {
         return new WebApplicationFactory<Program>()
@@ -131,6 +184,35 @@ public sealed class TransferApiTests
                 builder.UseSetting("Jwt:RequireAuthorization", requireAuthorization ? "true" : "false");
                 builder.UseEnvironment("Development");
             });
+    }
+
+    private static async Task<Guid> CreateDemoTransferAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/transfers");
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString("N"));
+        request.Content = JsonContent.Create(new
+        {
+            fromAccountId = "22222222-2222-2222-2222-222222222222",
+            recipient = new
+            {
+                type = "Account",
+                accountNumber = "40817810000000000002",
+                bankBic = "044525225",
+                name = "Demo Recipient"
+            },
+            amount = new
+            {
+                minorUnits = 150000,
+                currency = "RUB"
+            },
+            purpose = "Integration test transfer"
+        });
+
+        using var response = await client.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<CreateTransferResponse>();
+        Assert.NotNull(result);
+        return result.TransferId;
     }
 
     private sealed record CreateTransferResponse(Guid TransferId, string Status);
