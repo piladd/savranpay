@@ -62,6 +62,12 @@ export type RiskCheckView = {
   checkType: string
   decision: string
   details: string
+  deviceFingerprint?: string
+  ipAddress?: string
+  riskFactors?: string
+  blockReason?: string
+  documentsRequested?: boolean
+  stepUpRequired?: boolean
   createdAt: string
 }
 
@@ -82,12 +88,35 @@ export type NotificationView = {
   createdAt: string
 }
 
+export type SupportClaimView = {
+  id: string
+  transferId: string
+  customerId: string
+  createdByUserId?: string | null
+  category: string
+  status: string
+  assignedTo: 'Support' | 'AML' | 'Fraud' | 'Admin' | string
+  comment: string
+  contactComment: string
+  createdAt: string
+  updatedAt: string
+  comments: Array<{
+    id: string
+    supportClaimId: string
+    authorUserId?: string | null
+    authorRole: string
+    message: string
+    createdAt: string
+  }>
+}
+
 export type DashboardView = {
   customer: CustomerView | null
   accounts: AccountView[]
   transfers: TransferView[]
   ledger: LedgerEntryView[]
   riskChecks: RiskCheckView[]
+  supportClaims: SupportClaimView[]
   auditEvents: AuditEventView[]
   notifications: NotificationView[]
   limits: Array<{ name: string; value: string }>
@@ -290,6 +319,30 @@ export async function reportUnauthorizedClaim(
   })
 }
 
+export async function getSupportClaims() {
+  return request<SupportClaimView[]>('/api/v1/support/claims')
+}
+
+export async function saveSupportClaim(
+  transferId: string,
+  body: {
+    category: string
+    status: string
+    assignedTo: string
+    comment: string
+    contactComment: string
+  },
+) {
+  return request<SupportClaimView>(`/api/v1/support/transfers/${transferId}/claim`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function getAdminUsers() {
   return request<AdminUserView[]>('/api/v1/admin/users')
 }
@@ -330,8 +383,36 @@ export async function recordRiskDecision(kind: 'aml' | 'fraud', transferId: stri
       'Content-Type': 'application/json',
       'X-Request-Id': crypto.randomUUID(),
     },
-    body: JSON.stringify({ decision, details }),
+    body: JSON.stringify({
+      decision,
+      details,
+      riskFactors: [kind, decision],
+      blockReason: decision === 'Block' ? details : '',
+      documentsRequested: kind === 'aml' && decision === 'ManualReview',
+      stepUpRequired: kind === 'fraud' && decision === 'ManualReview',
+    }),
   })
+}
+
+export async function retryAdminTransfer(transferId: string, reason: string) {
+  return request(`/api/v1/admin/transfers/${transferId}/retry`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-Id': crypto.randomUUID(),
+    },
+    body: JSON.stringify({ reason }),
+  })
+}
+
+export async function getAdminTransferTechnicalDetails(transferId: string) {
+  return request<{
+    transferId: string
+    riskChecks: RiskCheckView[]
+    auditEvents: AuditEventView[]
+    ledger: LedgerEntryView[]
+    supportClaims: SupportClaimView[]
+  }>(`/api/v1/admin/transfers/${transferId}/technical-details`)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

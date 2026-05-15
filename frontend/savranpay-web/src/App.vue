@@ -11,11 +11,14 @@ import {
   getConfirmationChallenge,
   getCurrentUser,
   getDashboard,
+  getAdminTransferTechnicalDetails,
   getSessions,
   login,
   logout,
   recordRiskDecision,
   reportUnauthorizedClaim,
+  retryAdminTransfer,
+  saveSupportClaim as saveSupportClaimRequest,
   searchRecipients,
   setAdminUserActive,
   removeAdminUserRole,
@@ -25,21 +28,12 @@ import {
   type ConfirmationChallenge,
   type DashboardView,
   type RecipientSearchResult,
+  type SupportClaimView,
   type TransferView,
   type UserSessionView,
 } from './api/savranpayApi'
 
-type SupportClaim = {
-  id: string
-  transferId: string
-  category: string
-  status: string
-  comment: string
-  contactComment: string
-  assignedTo: 'Support' | 'AML' | 'Fraud' | 'Admin'
-  createdAt: string
-  updatedAt: string
-}
+type SupportClaim = SupportClaimView
 
 const demoSecret = 'savranpay-demo-secret-change-in-production'
 
@@ -60,6 +54,7 @@ const emptyDashboard: DashboardView = {
   transfers: [],
   ledger: [],
   riskChecks: [],
+  supportClaims: [],
   auditEvents: [],
   notifications: [],
   limits: [],
@@ -84,6 +79,7 @@ const confirmationChallenge = ref<ConfirmationChallenge | null>(null)
 const dashboard = ref<DashboardView>({ ...emptyDashboard })
 const adminUsers = ref<AdminUserView[]>([])
 const sessions = ref<UserSessionView[]>([])
+const adminTechnicalDetails = ref('')
 const decisionDetails = ref('Проверено вручную, замечания внесены в журнал аудита')
 const supportClaimForm = ref({
   status: 'Открыто',
@@ -259,6 +255,11 @@ onMounted(async () => {
   if (getAccessToken()) {
     try {
       user.value = await getCurrentUser()
+      if (user.value.roles.length === 0) {
+        await logout()
+        user.value = null
+        return
+      }
       await loadDashboard()
     } catch {
       await logout()
@@ -285,12 +286,14 @@ async function submitLogin() {
 async function loadDashboard() {
   error.value = ''
   dashboard.value = await getDashboard()
+  supportClaims.value = dashboard.value.supportClaims ?? []
 
   if (!form.value.fromAccountId && dashboard.value.accounts.length > 0) {
     form.value.fromAccountId = dashboard.value.accounts[0].id
   }
 
   selectedTransfer.value =
+    dashboard.value.transfers.find((transfer) => transfer.id === transferIdFromPath(window.location.pathname)) ??
     dashboard.value.transfers.find((transfer) => transfer.id === selectedTransfer.value?.id) ??
     pendingTransfers.value[0] ??
     dashboard.value.transfers[0] ??
@@ -520,12 +523,32 @@ function upsertSupportClaim(
       assignedTo: patch.assignedTo ?? 'Support',
       createdAt: now,
       updatedAt: now,
+      customerId: dashboard.value.customer?.id ?? '',
+      comments: [],
     },
     ...supportClaims.value,
   ]
 }
 
-function saveSupportClaim(transferId: string) {
+async function saveSupportClaim(transferId: string) {
+  busy.value = true
+  error.value = ''
+  const persistedClaim = await saveSupportClaimRequest(transferId, {
+    status: supportClaimForm.value.status,
+    category: supportClaimForm.value.category,
+    comment: supportClaimForm.value.comment,
+    contactComment: supportClaimForm.value.contactComment,
+    assignedTo: supportClaimForm.value.assignedTo,
+  }).catch((exception) => {
+    error.value = exception instanceof Error ? exception.message : 'Could not save support claim.'
+    return null
+  })
+  if (persistedClaim) {
+    supportClaims.value = [persistedClaim, ...supportClaims.value.filter((item) => item.id !== persistedClaim.id)]
+  } else {
+    busy.value = false
+    return
+  }
   upsertSupportClaim(transferId, {
     status: supportClaimForm.value.status,
     category: supportClaimForm.value.category,
@@ -533,6 +556,7 @@ function saveSupportClaim(transferId: string) {
     contactComment: supportClaimForm.value.contactComment,
     assignedTo: supportClaimForm.value.assignedTo,
   })
+  busy.value = false
   securityMessage.value = 'Обращение поддержки обновлено.'
 }
 
@@ -606,6 +630,42 @@ async function submitRiskDecision(transfer: TransferView, decision: 'ManualRevie
     await loadDashboard()
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось записать решение.'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function retrySelectedTransfer(transfer: TransferView) {
+  busy.value = true
+  error.value = ''
+  try {
+    await retryAdminTransfer(transfer.id, decisionDetails.value || 'Manual retry from admin cabinet')
+    securityMessage.value = 'Запрос на повтор обработки операции записан в audit.'
+    await loadDashboard()
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Could not retry transfer.'
+  } finally {
+    busy.value = false
+  }
+}
+
+async function loadTechnicalDetails(transfer: TransferView) {
+  busy.value = true
+  error.value = ''
+  try {
+    const details = await getAdminTransferTechnicalDetails(transfer.id)
+    adminTechnicalDetails.value = JSON.stringify(
+      {
+        riskChecks: details.riskChecks.length,
+        auditEvents: details.auditEvents.length,
+        ledger: details.ledger.length,
+        supportClaims: details.supportClaims.length,
+      },
+      null,
+      2,
+    )
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Could not load technical details.'
   } finally {
     busy.value = false
   }
@@ -701,7 +761,13 @@ function normalizePath(path: string) {
   if (path.startsWith('/cabinet/support/transfers/')) return '/cabinet/support'
   if (path.startsWith('/cabinet/aml/reviews/')) return '/cabinet/aml'
   if (path.startsWith('/cabinet/fraud/reviews/')) return '/cabinet/fraud'
+  if (path.startsWith('/cabinet/audit/events/')) return '/cabinet/audit'
+  if (path.startsWith('/cabinet/admin/operations/')) return '/cabinet/admin'
   return '/cabinet/client'
+}
+
+function transferIdFromPath(path: string) {
+  return path.match(/\/cabinet\/(?:client\/transfers|support\/transfers|aml\/reviews|fraud\/reviews|audit\/events|admin\/operations)\/([^/]+)/)?.[1] ?? null
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
@@ -1589,6 +1655,8 @@ function transferTimeline(transfer: TransferView) {
               <button v-if="currentPath === '/cabinet/fraud'" class="ghost" :disabled="busy">Передать в поддержку</button>
             </div>
             <div v-if="currentPath === '/cabinet/admin'" class="actions">
+              <button class="ghost" :disabled="busy" @click="retrySelectedTransfer(selectedTransfer)">Retry processing</button>
+              <button class="ghost" :disabled="busy" @click="loadTechnicalDetails(selectedTransfer)">Technical details</button>
               <button class="ghost" disabled>Повторить обработку</button>
               <button class="ghost" disabled>Разблокировать операцию</button>
               <button class="ghost danger-action" disabled>Заблокировать пользователя</button>

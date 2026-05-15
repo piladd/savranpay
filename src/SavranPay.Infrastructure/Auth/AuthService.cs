@@ -2,6 +2,7 @@ using SavranPay.Infrastructure.Persistence;
 using SavranPay.Infrastructure.Persistence.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace SavranPay.Infrastructure.Auth;
 
@@ -48,9 +49,12 @@ public sealed class AuthService
 
         if (user is null || !user.IsActive || !PasswordHasher.Verify(password, user.PasswordHash))
         {
+            AddAudit(Guid.Empty, "LoginFailed", $"Login rejected for {login} from {ipAddress}.");
+            await _db.SaveChangesAsync(cancellationToken);
             return null;
         }
 
+        AddAudit(user.Id, "LoginSucceeded", $"User {user.Login} signed in from {ipAddress}.");
         return await IssueTokensAsync(user, ipAddress, userAgent, cancellationToken);
     }
 
@@ -70,6 +74,8 @@ public sealed class AuthService
 
         if (token is null || token.RevokedAt is not null || token.ExpiresAt <= DateTimeOffset.UtcNow || !token.User.IsActive)
         {
+            AddAudit(Guid.Empty, "RefreshFailed", $"Refresh token rejected from {ipAddress}.");
+            await _db.SaveChangesAsync(cancellationToken);
             return null;
         }
 
@@ -80,6 +86,7 @@ public sealed class AuthService
             token.Session.RevokedAt = DateTimeOffset.UtcNow;
         }
 
+        AddAudit(token.UserId, "RefreshSucceeded", $"Refresh token rotated from {ipAddress}.");
         return await IssueTokensAsync(token.User, ipAddress, userAgent, cancellationToken);
     }
 
@@ -92,6 +99,8 @@ public sealed class AuthService
 
         if (token is null)
         {
+            AddAudit(Guid.Empty, "LogoutFailed", "Logout requested for an unknown refresh token.");
+            await _db.SaveChangesAsync(cancellationToken);
             return false;
         }
 
@@ -103,6 +112,7 @@ public sealed class AuthService
             token.Session.LastSeenAt = now;
         }
 
+        AddAudit(token.UserId, "LogoutSucceeded", "Refresh token and session were revoked.");
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -127,6 +137,8 @@ public sealed class AuthService
 
         if (user is null || !PasswordHasher.Verify(currentPassword, user.PasswordHash))
         {
+            AddAudit(userId, "PasswordChangeFailed", "Current password verification failed.");
+            await _db.SaveChangesAsync(cancellationToken);
             return false;
         }
 
@@ -143,6 +155,7 @@ public sealed class AuthService
             session.LastSeenAt = now;
         }
 
+        AddAudit(user.Id, "PasswordChanged", "Password changed and active refresh sessions were revoked.");
         await _db.SaveChangesAsync(cancellationToken);
         return true;
     }
@@ -219,4 +232,24 @@ public sealed class AuthService
         user.CustomerId,
         Roles = roles
     };
+
+    private void AddAudit(Guid operationId, string eventType, string message)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _db.AuditEvents.Add(new AuditEventEntity
+        {
+            Id = Guid.NewGuid(),
+            OperationId = operationId,
+            EventType = eventType,
+            Message = message,
+            CreatedAt = now
+        });
+        _db.OutboxMessages.Add(new OutboxMessageEntity
+        {
+            Id = Guid.NewGuid(),
+            Type = $"Audit.{eventType}",
+            Payload = JsonSerializer.Serialize(new { operationId, eventType, message }),
+            CreatedAt = now
+        });
+    }
 }

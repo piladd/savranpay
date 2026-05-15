@@ -19,6 +19,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -72,7 +73,7 @@ builder.Services.AddCors(options =>
                 (frontendOrigins.Contains(origin, StringComparer.OrdinalIgnoreCase) ||
                  uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)))
             .WithHeaders("Content-Type", "Authorization", "Idempotency-Key", "X-Request-Id")
-            .WithMethods("GET", "POST", "OPTIONS");
+            .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
     });
 });
 
@@ -425,6 +426,11 @@ var dashboardEndpoint = app.MapGet("/api/v1/dashboard", async (
                 .Where(check => privilegedDashboard || transferIds.Contains(check.TransferId))
                 .OrderByDescending(check => check.CreatedAt)
                 .ToListAsync(cancellationToken),
+            supportClaims = (await db.SupportClaims.AsNoTracking()
+                .Include(claim => claim.Comments)
+                .Where(claim => privilegedDashboard || claim.CustomerId == customerId)
+                .OrderByDescending(claim => claim.UpdatedAt)
+                .ToListAsync(cancellationToken)).Select(ToSupportClaimView),
             auditEvents = await db.AuditEvents.AsNoTracking()
                 .Where(audit => privilegedDashboard || transferIds.Contains(audit.OperationId))
                 .OrderByDescending(audit => audit.CreatedAt)
@@ -446,6 +452,7 @@ var dashboardEndpoint = app.MapGet("/api/v1/dashboard", async (
         transfers = store.Transfers.Values.OrderByDescending(transfer => transfer.CreatedAt).Select(ToTransferView),
         ledger = store.LedgerEntries.OrderByDescending(entry => entry.CreatedAt),
         riskChecks = store.RiskChecks.OrderByDescending(check => check.CreatedAt),
+        supportClaims = Array.Empty<object>(),
         auditEvents = store.AuditEvents.OrderByDescending(audit => audit.CreatedAt),
         notifications = store.Notifications.OrderByDescending(notification => notification.CreatedAt),
         limits = DashboardLimits(),
@@ -762,6 +769,7 @@ if (requireAuthorization)
 var unauthorizedClaimEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}/unauthorized-claim", async (
     Guid transferId,
     HttpContext httpContext,
+    IServiceProvider services,
     ITransferOrderRepository transfers,
     IAuditService audit,
     IUnitOfWork unitOfWork,
@@ -784,11 +792,194 @@ var unauthorizedClaimEndpoint = app.MapPost("/api/v1/transfers/{transferId:guid}
     await audit.WriteAsync(transfer.Id, "UnauthorizedClaimCreated", "Client reported an unauthorized transfer.", cancellationToken);
     await unitOfWork.SaveChangesAsync(cancellationToken);
 
+    if (usePostgres)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+        var now = DateTimeOffset.UtcNow;
+        var claim = await db.SupportClaims.FirstOrDefaultAsync(item => item.TransferId == transfer.Id, cancellationToken);
+        if (claim is null)
+        {
+            claim = new SupportClaimEntity
+            {
+                Id = Guid.NewGuid(),
+                TransferId = transfer.Id,
+                CustomerId = transfer.CustomerId,
+                CreatedByUserId = TryReadUserIdFromClaims(httpContext),
+                Category = "Unauthorized transfer",
+                Status = "Open",
+                AssignedTo = "Support",
+                Comment = "Client reported an unauthorized transfer.",
+                ContactComment = string.Empty,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            db.SupportClaims.Add(claim);
+        }
+        else
+        {
+            claim.Status = "Open";
+            claim.AssignedTo = "Support";
+            claim.UpdatedAt = now;
+        }
+
+        db.SupportClaimComments.Add(new SupportClaimCommentEntity
+        {
+            Id = Guid.NewGuid(),
+            SupportClaimId = claim.Id,
+            AuthorUserId = TryReadUserIdFromClaims(httpContext),
+            AuthorRole = CurrentRole(httpContext),
+            Message = "Unauthorized transfer dispute was opened.",
+            CreatedAt = now
+        });
+        AddAuditEvent(db, claim.Id, "SupportClaimCreated", $"Support claim opened for transfer {transfer.Id}.");
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     return Results.Accepted($"/api/v1/transfers/{transfer.Id}", new { transfer.Id, transfer.Status });
 });
 if (requireAuthorization)
 {
     unauthorizedClaimEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin));
+}
+
+var supportClaimsEndpoint = app.MapGet("/api/v1/support/claims", async (
+    IServiceProvider services,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
+{
+    if (!usePostgres)
+    {
+        return Results.Ok(Array.Empty<object>());
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var customerId = ResolveCustomerId(httpContext, requireAuthorization);
+    var privileged = CanUseCustomerHeader(httpContext);
+    var claims = await db.SupportClaims
+        .AsNoTracking()
+        .Include(claim => claim.Comments)
+        .Where(claim => privileged || claim.CustomerId == customerId)
+        .OrderByDescending(claim => claim.UpdatedAt)
+        .ToListAsync(cancellationToken);
+
+    return Results.Ok(claims.Select(ToSupportClaimView));
+});
+
+var upsertSupportClaimEndpoint = app.MapPut("/api/v1/support/transfers/{transferId:guid}/claim", async (
+    Guid transferId,
+    SupportClaimRequest request,
+    IServiceProvider services,
+    HttpContext httpContext,
+    ITransferOrderRepository transfers,
+    CancellationToken cancellationToken) =>
+{
+    if (!usePostgres)
+    {
+        return Results.BadRequest("PostgreSQL mode is required for support claims.");
+    }
+
+    var transfer = await transfers.GetByIdAsync(transferId, cancellationToken);
+    if (transfer is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!CanAccessTransfer(httpContext, transfer.CustomerId, requireAuthorization, SavranPayRole.SupportOperator, SavranPayRole.Admin))
+    {
+        return Results.Forbid();
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var now = DateTimeOffset.UtcNow;
+    var claim = await db.SupportClaims
+        .Include(item => item.Comments)
+        .FirstOrDefaultAsync(item => item.TransferId == transferId, cancellationToken);
+    var created = claim is null;
+
+    if (claim is null)
+    {
+        claim = new SupportClaimEntity
+        {
+            Id = Guid.NewGuid(),
+            TransferId = transferId,
+            CustomerId = transfer.CustomerId,
+            CreatedByUserId = TryReadUserIdFromClaims(httpContext),
+            CreatedAt = now
+        };
+        db.SupportClaims.Add(claim);
+    }
+
+    claim.Category = NormalizeSupportValue(request.Category, "General");
+    claim.Status = NormalizeSupportValue(request.Status, "Open");
+    claim.AssignedTo = NormalizeSupportValue(request.AssignedTo, "Support");
+    claim.Comment = request.Comment ?? string.Empty;
+    claim.ContactComment = request.ContactComment ?? string.Empty;
+    claim.UpdatedAt = now;
+
+    db.SupportClaimComments.Add(new SupportClaimCommentEntity
+    {
+        Id = Guid.NewGuid(),
+        SupportClaimId = claim.Id,
+        AuthorUserId = TryReadUserIdFromClaims(httpContext),
+        AuthorRole = CurrentRole(httpContext),
+        Message = $"{claim.Status}; assigned to {claim.AssignedTo}. {claim.Comment}",
+        CreatedAt = now
+    });
+    AddAuditEvent(db, claim.Id, created ? "SupportClaimCreated" : "SupportClaimUpdated", $"Support claim for transfer {transferId} is {claim.Status}, assigned to {claim.AssignedTo}.");
+    await db.SaveChangesAsync(cancellationToken);
+
+    return Results.Ok(ToSupportClaimView(claim));
+});
+
+var addSupportClaimCommentEndpoint = app.MapPost("/api/v1/support/claims/{claimId:guid}/comments", async (
+    Guid claimId,
+    SupportClaimCommentRequest request,
+    IServiceProvider services,
+    HttpContext httpContext,
+    CancellationToken cancellationToken) =>
+{
+    if (!usePostgres)
+    {
+        return Results.BadRequest("PostgreSQL mode is required for support claims.");
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var claim = await db.SupportClaims.Include(item => item.Comments).SingleOrDefaultAsync(item => item.Id == claimId, cancellationToken);
+    if (claim is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!CanUseCustomerHeader(httpContext) && TryReadCustomerIdFromClaims(httpContext) != claim.CustomerId)
+    {
+        return Results.Forbid();
+    }
+
+    var now = DateTimeOffset.UtcNow;
+    db.SupportClaimComments.Add(new SupportClaimCommentEntity
+    {
+        Id = Guid.NewGuid(),
+        SupportClaimId = claim.Id,
+        AuthorUserId = TryReadUserIdFromClaims(httpContext),
+        AuthorRole = CurrentRole(httpContext),
+        Message = request.Message,
+        CreatedAt = now
+    });
+    claim.UpdatedAt = now;
+    AddAuditEvent(db, claim.Id, "SupportClaimCommentAdded", $"Comment added to support claim {claim.Id}.");
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(ToSupportClaimView(claim));
+});
+
+if (requireAuthorization)
+{
+    supportClaimsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.AmlOfficer, SavranPayRole.FraudOfficer, SavranPayRole.Admin, SavranPayRole.Auditor));
+    upsertSupportClaimEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.Admin));
+    addSupportClaimCommentEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Customer, SavranPayRole.SupportOperator, SavranPayRole.AmlOfficer, SavranPayRole.FraudOfficer, SavranPayRole.Admin));
 }
 
 var adminUsersEndpoint = app.MapGet("/api/v1/admin/users", async (IServiceProvider services, CancellationToken cancellationToken) =>
@@ -852,6 +1043,7 @@ var createAdminUserEndpoint = app.MapPost("/api/v1/admin/users", async (
     }
 
     db.Users.Add(user);
+    AddAuditEvent(db, user.Id, "AdminUserCreated", $"Admin created user {user.Login}.");
     await db.SaveChangesAsync(cancellationToken);
     return Results.Created($"/api/v1/admin/users/{user.Id}", ToAdminUserView(user));
 });
@@ -881,6 +1073,7 @@ var updateAdminUserEndpoint = app.MapPatch("/api/v1/admin/users/{userId:guid}", 
     user.CustomerId = request.CustomerId ?? user.CustomerId;
     user.IsActive = request.IsActive ?? user.IsActive;
 
+    AddAuditEvent(db, user.Id, "AdminUserUpdated", $"Admin updated user {user.Login}.");
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 });
@@ -909,6 +1102,7 @@ var addRoleEndpoint = app.MapPost("/api/v1/admin/users/{userId:guid}/roles", asy
     if (!exists)
     {
         db.UserRoles.Add(new UserRoleEntity { UserId = userId, RoleId = role.Id });
+        AddAuditEvent(db, userId, "AdminRoleAdded", $"Role {request.Role} was added.");
         await db.SaveChangesAsync(cancellationToken);
     }
 
@@ -938,6 +1132,7 @@ var removeRoleEndpoint = app.MapDelete("/api/v1/admin/users/{userId:guid}/roles/
     }
 
     db.UserRoles.Remove(userRole);
+    AddAuditEvent(db, userId, "AdminRoleRemoved", $"Role {role} was removed.");
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 });
@@ -951,6 +1146,121 @@ var unblockUserEndpoint = app.MapPost("/api/v1/admin/users/{userId:guid}/unblock
     Guid userId,
     IServiceProvider services,
     CancellationToken cancellationToken) => await SetUserActiveAsync(userId, true, services, usePostgres, cancellationToken));
+
+var resetUserPasswordEndpoint = app.MapPost("/api/v1/admin/users/{userId:guid}/reset-password", async (
+    Guid userId,
+    AdminSystemActionRequest request,
+    IServiceProvider services,
+    CancellationToken cancellationToken) =>
+{
+    if (!usePostgres)
+    {
+        return Results.BadRequest("PostgreSQL mode is required for user management.");
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var user = await db.Users.Include(item => item.RefreshTokens).Include(item => item.Sessions).SingleOrDefaultAsync(item => item.Id == userId, cancellationToken);
+    if (user is null)
+    {
+        return Results.NotFound();
+    }
+
+    var temporaryPassword = $"Tmp{Random.Shared.Next(100000, 999999)}!";
+    user.PasswordHash = PasswordHasher.Hash(temporaryPassword);
+    var now = DateTimeOffset.UtcNow;
+    foreach (var token in user.RefreshTokens.Where(item => item.RevokedAt is null))
+    {
+        token.RevokedAt = now;
+    }
+
+    foreach (var session in user.Sessions.Where(item => item.RevokedAt is null))
+    {
+        session.RevokedAt = now;
+        session.LastSeenAt = now;
+    }
+
+    AddAuditEvent(db, user.Id, "AdminPasswordReset", $"Password reset requested. Reason: {request.Reason ?? "not specified"}.");
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Ok(new { user.Id, temporaryPassword });
+});
+
+var updateUserLimitEndpoint = app.MapPost("/api/v1/admin/users/{userId:guid}/limits", async (
+    Guid userId,
+    AdminSystemActionRequest request,
+    IServiceProvider services,
+    CancellationToken cancellationToken) =>
+{
+    if (!usePostgres)
+    {
+        return Results.BadRequest("PostgreSQL mode is required for user management.");
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var exists = await db.Users.AnyAsync(item => item.Id == userId, cancellationToken);
+    if (!exists)
+    {
+        return Results.NotFound();
+    }
+
+    AddAuditEvent(db, userId, "AdminLimitChanged", $"Limit set to {request.LimitMinorUnits ?? 0} minor units. Reason: {request.Reason ?? "not specified"}.");
+    await db.SaveChangesAsync(cancellationToken);
+    return Results.Accepted($"/api/v1/admin/users/{userId}", new { userId, request.LimitMinorUnits });
+});
+
+var retryTransferEndpoint = app.MapPost("/api/v1/admin/transfers/{transferId:guid}/retry", async (
+    Guid transferId,
+    AdminSystemActionRequest request,
+    IServiceProvider services,
+    ITransferOrderRepository transfers,
+    CancellationToken cancellationToken) =>
+{
+    var transfer = await transfers.GetByIdAsync(transferId, cancellationToken);
+    if (transfer is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (usePostgres)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+        AddAuditEvent(db, transferId, "AdminTransferRetryRequested", $"Retry requested. Reason: {request.Reason ?? "not specified"}.");
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    return Results.Accepted($"/api/v1/transfers/{transferId}", new { transferId, action = "RetryRequested" });
+});
+
+var transferTechnicalDetailsEndpoint = app.MapGet("/api/v1/admin/transfers/{transferId:guid}/technical-details", async (
+    Guid transferId,
+    IServiceProvider services,
+    ITransferOrderRepository transfers,
+    CancellationToken cancellationToken) =>
+{
+    var transfer = await transfers.GetByIdAsync(transferId, cancellationToken);
+    if (transfer is null)
+    {
+        return Results.NotFound();
+    }
+
+    if (!usePostgres)
+    {
+        return Results.Ok(new { transferId, storage = "in-memory" });
+    }
+
+    await using var scope = services.CreateAsyncScope();
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    return Results.Ok(new
+    {
+        transferId,
+        riskChecks = await db.RiskChecks.AsNoTracking().Where(item => item.TransferId == transferId).OrderByDescending(item => item.CreatedAt).ToListAsync(cancellationToken),
+        auditEvents = await db.AuditEvents.AsNoTracking().Where(item => item.OperationId == transferId).OrderByDescending(item => item.CreatedAt).ToListAsync(cancellationToken),
+        ledger = await db.Ledger.AsNoTracking().Where(item => item.TransferId == transferId).OrderByDescending(item => item.CreatedAt).ToListAsync(cancellationToken),
+        supportClaims = await db.SupportClaims.AsNoTracking().Where(item => item.TransferId == transferId).OrderByDescending(item => item.UpdatedAt).ToListAsync(cancellationToken)
+    });
+});
 
 var amlDecisionEndpoint = app.MapPost("/api/v1/aml/transfers/{transferId:guid}/decision", async (
     Guid transferId,
@@ -1007,6 +1317,10 @@ if (requireAuthorization)
     removeRoleEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
     blockUserEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
     unblockUserEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
+    resetUserPasswordEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
+    updateUserLimitEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
+    retryTransferEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
+    transferTechnicalDetailsEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.Admin));
     amlDecisionEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.AmlOfficer, SavranPayRole.Admin));
     fraudDecisionEndpoint.RequireAuthorization(policy => policy.RequireRole(SavranPayRole.FraudOfficer, SavranPayRole.Admin));
 }
@@ -1124,6 +1438,59 @@ static object ToAdminUserView(UserEntity user) => new
     Roles = user.Roles.Select(item => item.Role.Name).Order().ToArray()
 };
 
+static object ToSupportClaimView(SupportClaimEntity claim) => new
+{
+    claim.Id,
+    claim.TransferId,
+    claim.CustomerId,
+    claim.CreatedByUserId,
+    claim.Category,
+    claim.Status,
+    claim.AssignedTo,
+    claim.Comment,
+    claim.ContactComment,
+    claim.CreatedAt,
+    claim.UpdatedAt,
+    Comments = claim.Comments
+        .OrderBy(item => item.CreatedAt)
+        .Select(item => new
+        {
+            item.Id,
+            item.SupportClaimId,
+            item.AuthorUserId,
+            item.AuthorRole,
+            item.Message,
+            item.CreatedAt
+        })
+        .ToArray()
+};
+
+static string NormalizeSupportValue(string? value, string fallback) =>
+    string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+
+static string CurrentRole(HttpContext context) =>
+    context.User.Claims.FirstOrDefault(claim => claim.Type == ClaimTypes.Role)?.Value ?? "Anonymous";
+
+static void AddAuditEvent(SavranPayDbContext db, Guid operationId, string eventType, string message)
+{
+    var now = DateTimeOffset.UtcNow;
+    db.AuditEvents.Add(new AuditEventEntity
+    {
+        Id = Guid.NewGuid(),
+        OperationId = operationId,
+        EventType = eventType,
+        Message = message,
+        CreatedAt = now
+    });
+    db.OutboxMessages.Add(new OutboxMessageEntity
+    {
+        Id = Guid.NewGuid(),
+        Type = $"Audit.{eventType}",
+        Payload = JsonSerializer.Serialize(new { operationId, eventType, message }),
+        CreatedAt = now
+    });
+}
+
 static async Task<IResult> SetUserActiveAsync(
     Guid userId,
     bool isActive,
@@ -1164,6 +1531,7 @@ static async Task<IResult> SetUserActiveAsync(
         }
     }
 
+    AddAuditEvent(db, user.Id, isActive ? "AdminUserUnblocked" : "AdminUserBlocked", $"User {user.Login} active state set to {isActive}.");
     await db.SaveChangesAsync(cancellationToken);
     return Results.NoContent();
 }
@@ -1197,6 +1565,12 @@ static async Task<IResult> RecordManualRiskDecisionAsync(
             CheckType = checkType,
             Decision = request.Decision,
             Details = request.Details,
+            DeviceFingerprint = $"manual-{transfer.CustomerId:N}"[..39],
+            IpAddress = "manual-review",
+            RiskFactors = JsonSerializer.Serialize(request.RiskFactors ?? []),
+            BlockReason = request.BlockReason ?? string.Empty,
+            DocumentsRequested = request.DocumentsRequested ?? false,
+            StepUpRequired = request.StepUpRequired ?? request.Decision.Equals("ManualReview", StringComparison.OrdinalIgnoreCase),
             CreatedAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync(cancellationToken);

@@ -18,6 +18,8 @@ public sealed class SavranPayDbContext : DbContext
     public DbSet<AccountEntity> Accounts => Set<AccountEntity>();
     public DbSet<TransferEntity> Transfers => Set<TransferEntity>();
     public DbSet<RiskCheckEntity> RiskChecks => Set<RiskCheckEntity>();
+    public DbSet<SupportClaimEntity> SupportClaims => Set<SupportClaimEntity>();
+    public DbSet<SupportClaimCommentEntity> SupportClaimComments => Set<SupportClaimCommentEntity>();
     public DbSet<LedgerEntryEntity> Ledger => Set<LedgerEntryEntity>();
     public DbSet<AuditEventEntity> AuditEvents => Set<AuditEventEntity>();
     public DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
@@ -115,6 +117,33 @@ public sealed class SavranPayDbContext : DbContext
             entity.Property(item => item.CheckType).HasMaxLength(32).IsRequired();
             entity.Property(item => item.Decision).HasMaxLength(48).IsRequired();
             entity.Property(item => item.Details).HasMaxLength(1024).IsRequired();
+            entity.Property(item => item.DeviceFingerprint).HasMaxLength(128).IsRequired();
+            entity.Property(item => item.IpAddress).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.RiskFactors).HasColumnType("jsonb").IsRequired();
+            entity.Property(item => item.BlockReason).HasMaxLength(512).IsRequired();
+        });
+
+        modelBuilder.Entity<SupportClaimEntity>(entity =>
+        {
+            entity.ToTable("support_claims");
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => item.TransferId);
+            entity.HasIndex(item => item.CustomerId);
+            entity.Property(item => item.Category).HasMaxLength(96).IsRequired();
+            entity.Property(item => item.Status).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.AssignedTo).HasMaxLength(32).IsRequired();
+            entity.Property(item => item.Comment).HasMaxLength(1024).IsRequired();
+            entity.Property(item => item.ContactComment).HasMaxLength(512).IsRequired();
+        });
+
+        modelBuilder.Entity<SupportClaimCommentEntity>(entity =>
+        {
+            entity.ToTable("support_claim_comments");
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => item.SupportClaimId);
+            entity.Property(item => item.AuthorRole).HasMaxLength(64).IsRequired();
+            entity.Property(item => item.Message).HasMaxLength(1024).IsRequired();
+            entity.HasOne(item => item.Claim).WithMany(item => item.Comments).HasForeignKey(item => item.SupportClaimId);
         });
 
         modelBuilder.Entity<AuditEventEntity>(entity =>
