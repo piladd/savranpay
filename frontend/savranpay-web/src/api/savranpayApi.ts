@@ -132,6 +132,15 @@ export type CreateTransferRequest = {
 export type CreateTransferResult = {
   transferId: string
   status: string
+  transfer?: TransferView
+}
+
+export type RecipientSearchResult = {
+  cardNumber: string
+  name: string
+  accountNumber: string
+  bankBic: string
+  bankName: string
 }
 
 export type ConfirmationChallenge = {
@@ -207,6 +216,10 @@ export async function createTransfer(body: CreateTransferRequest) {
   })
 }
 
+export async function searchRecipients(query: string) {
+  return request<RecipientSearchResult[]>(`/api/v1/recipients/search?q=${encodeURIComponent(query)}`)
+}
+
 export async function getConfirmationChallenge(transferId: string) {
   return request<ConfirmationChallenge>(`/api/v1/transfers/${transferId}/confirmation-challenge`)
 }
@@ -219,6 +232,15 @@ export async function confirmTransfer(transferId: string, body: ConfirmTransferR
       'X-Request-Id': crypto.randomUUID(),
     },
     body: JSON.stringify(body),
+  })
+}
+
+export async function cancelTransferRequest(transferId: string) {
+  return request<CreateTransferResult>(`/api/v1/transfers/${transferId}/cancel`, {
+    method: 'POST',
+    headers: {
+      'X-Request-Id': crypto.randomUUID(),
+    },
   })
 }
 

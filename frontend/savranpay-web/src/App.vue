@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  cancelTransferRequest,
   confirmTransfer,
   createTransfer,
   getAccessToken,
@@ -12,11 +13,13 @@ import {
   logout,
   recordRiskDecision,
   reportUnauthorizedClaim,
+  searchRecipients,
   setAdminUserActive,
   type AccountView,
   type AdminUserView,
   type AuthUser,
   type DashboardView,
+  type RecipientSearchResult,
   type TransferView,
 } from './api/savranpayApi'
 
@@ -50,6 +53,7 @@ const busy = ref(false)
 const error = ref('')
 const lastChallenge = ref('')
 const recipientSearch = ref('')
+const serverRecipientMatches = ref<RecipientSearchResult[]>([])
 const selectedTransfer = ref<TransferView | null>(null)
 const dashboard = ref<DashboardView>({ ...emptyDashboard })
 const adminUsers = ref<AdminUserView[]>([])
@@ -97,7 +101,9 @@ const selectedAccount = computed(() => dashboard.value.accounts.find((account) =
 const recipientMatches = computed(() => {
   const digits = recipientSearch.value.replace(/\D/g, '')
   if (digits.length < 4) return []
-  return recipientDirectory.filter((item) => item.cardNumber.includes(digits)).slice(0, 4)
+  const local = recipientDirectory.filter((item) => item.cardNumber.includes(digits))
+  const byCard = new Map([...serverRecipientMatches.value, ...local].map((item) => [item.cardNumber, item]))
+  return Array.from(byCard.values()).slice(0, 4)
 })
 const pendingTransfers = computed(() =>
   dashboard.value.transfers.filter((transfer) => transfer.status === 'PendingClientConfirmation'),
@@ -201,7 +207,7 @@ async function submitTransfer() {
       purpose: form.value.purpose,
     })
 
-    const transfer: TransferView = {
+    const transfer: TransferView = result.transfer ?? {
       id: result.transferId,
       customerId: dashboard.value.customer?.id ?? user.value?.customerId ?? 'demo-customer',
       fromAccountId: form.value.fromAccountId,
@@ -279,18 +285,27 @@ async function disputeTransfer(transferId: string) {
   }
 }
 
-function cancelTransfer(transferId: string) {
+async function cancelTransfer(transferId: string) {
+  busy.value = true
+  error.value = ''
   const transfer = dashboard.value.transfers.find((item) => item.id === transferId)
-  if (transfer && reservedTransferIds.value.has(transferId)) {
-    adjustAccountBalance(transfer.fromAccountId, transfer.amount.minorUnits, -transfer.amount.minorUnits)
-    const next = new Set(reservedTransferIds.value)
-    next.delete(transferId)
-    reservedTransferIds.value = next
+  try {
+    await cancelTransferRequest(transferId).catch(() => undefined)
+    if (transfer && reservedTransferIds.value.has(transferId)) {
+      adjustAccountBalance(transfer.fromAccountId, transfer.amount.minorUnits, -transfer.amount.minorUnits)
+      const next = new Set(reservedTransferIds.value)
+      next.delete(transferId)
+      reservedTransferIds.value = next
+    }
+    markTransferStatus(transferId, 'Cancelled')
+  } catch (exception) {
+    error.value = exception instanceof Error ? exception.message : 'Не удалось отменить перевод.'
+  } finally {
+    busy.value = false
   }
-  markTransferStatus(transferId, 'Cancelled')
 }
 
-function applyRecipient(recipient: (typeof recipientDirectory)[number]) {
+function applyRecipient(recipient: RecipientSearchResult) {
   recipientSearch.value = recipient.cardNumber
   form.value.recipient.type = 'Card'
   form.value.recipient.name = recipient.name
@@ -298,10 +313,16 @@ function applyRecipient(recipient: (typeof recipientDirectory)[number]) {
   form.value.recipient.bankBic = recipient.bankBic
 }
 
-function applyRecipientBySearch() {
+async function applyRecipientBySearch() {
   const digits = recipientSearch.value.replace(/\D/g, '')
+  if (digits.length >= 4) {
+    serverRecipientMatches.value = await searchRecipients(digits).catch(() => [])
+  } else {
+    serverRecipientMatches.value = []
+  }
   const found = recipientDirectory.find((item) => item.cardNumber === digits)
-  if (found) applyRecipient(found)
+  const serverFound = serverRecipientMatches.value.find((item) => item.cardNumber === digits)
+  if (serverFound || found) applyRecipient(serverFound ?? found!)
 }
 
 function repeatTransfer(transfer: TransferView) {

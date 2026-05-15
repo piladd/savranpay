@@ -17,6 +17,30 @@ const demoAccount = {
   reservedBalance: { minorUnits: 0, currency: 'RUB' },
 }
 
+const recipientDirectory = [
+  {
+    cardNumber: '2202200000000001',
+    name: 'Анна Смирнова',
+    accountNumber: '40817810000000000999',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+  {
+    cardNumber: '2202200000000002',
+    name: 'Петр Иванов',
+    accountNumber: '40817810000000000888',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+  {
+    cardNumber: '2202200000000003',
+    name: 'Мария Кузнецова',
+    accountNumber: '40817810000000000777',
+    bankBic: '044525225',
+    bankName: 'SavranPay Банк',
+  },
+]
+
 const seededTransfers = [
   {
     id: 'demo-transfer-1',
@@ -65,6 +89,37 @@ const seededTransfers = [
     status: 'Disputed',
     createdAt: '2026-05-13T15:40:00.000Z',
     updatedAt: '2026-05-13T16:10:00.000Z',
+  },
+]
+
+const ledgerEntries = [
+  {
+    id: 'ledger-1',
+    transferId: 'demo-transfer-2',
+    accountNumber: demoAccount.number,
+    debitMinorUnits: 80000,
+    creditMinorUnits: 0,
+    currency: 'RUB',
+    createdAt: '2026-05-14T08:21:00.000Z',
+  },
+  {
+    id: 'ledger-2',
+    transferId: 'demo-transfer-2',
+    accountNumber: '40817810000000000888',
+    debitMinorUnits: 0,
+    creditMinorUnits: 80000,
+    currency: 'RUB',
+    createdAt: '2026-05-14T08:21:00.000Z',
+  },
+]
+
+const auditEvents = [
+  {
+    id: 'audit-1',
+    operationId: 'demo-transfer-1',
+    eventType: 'TransferCreated',
+    message: 'Создано платежное распоряжение',
+    createdAt: '2026-05-14T12:30:00.000Z',
   },
 ]
 
@@ -137,9 +192,42 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(dashboard())
     }
 
+    if (req.method === 'GET' && route === 'recipients/search') {
+      const query = String(req.query.q || '').replace(/\D/g, '')
+      const matches = query.length < 4 ? [] : recipientDirectory.filter((item) => item.cardNumber.includes(query))
+      return res.status(200).json(matches.slice(0, 5))
+    }
+
     if (req.method === 'POST' && route === 'transfers') {
       const body = await readBody(req)
-      return res.status(200).json({ transferId: `demo-${Date.now()}`, status: 'PendingClientConfirmation', request: body })
+      const amount = Number(body.amount?.minorUnits || 0)
+      if (!body.fromAccountId || amount <= 0) {
+        return res.status(400).json({ message: 'Invalid transfer request.' })
+      }
+      if (body.fromAccountId !== demoAccount.id) {
+        return res.status(404).json({ message: 'Source account not found.' })
+      }
+      if (amount > demoAccount.availableBalance.minorUnits) {
+        return res.status(409).json({ message: 'Insufficient funds.' })
+      }
+
+      const now = new Date().toISOString()
+      const transfer = {
+        id: `demo-${Date.now()}`,
+        customerId: 'demo-customer',
+        fromAccountId: body.fromAccountId,
+        recipient: body.recipient,
+        amount: body.amount,
+        purpose: body.purpose,
+        status: 'PendingClientConfirmation',
+        createdAt: now,
+        updatedAt: now,
+      }
+      demoAccount.availableBalance.minorUnits -= amount
+      demoAccount.reservedBalance.minorUnits += amount
+      seededTransfers.unshift(transfer)
+      auditEvents.unshift(auditEvent('TransferCreated', transfer.id, `Создан перевод ${transfer.recipient.name} на ${formatRub(amount)}`))
+      return res.status(200).json({ transferId: transfer.id, status: transfer.status, transfer })
     }
 
     const challengeMatch = route.match(/^transfers\/([^/]+)\/confirmation-challenge$/)
@@ -160,12 +248,52 @@ module.exports = async function handler(req, res) {
 
     const confirmMatch = route.match(/^transfers\/([^/]+)\/confirm$/)
     if (req.method === 'POST' && confirmMatch) {
-      return res.status(200).json({ transferId: confirmMatch[1], status: 'Settled' })
+      const transfer = seededTransfers.find((item) => item.id === confirmMatch[1])
+      if (!transfer) {
+        return res.status(404).json({ message: 'Transfer not found.' })
+      }
+
+      if (transfer.status === 'PendingClientConfirmation') {
+        demoAccount.reservedBalance.minorUnits = Math.max(0, demoAccount.reservedBalance.minorUnits - transfer.amount.minorUnits)
+        transfer.status = 'Settled'
+        transfer.updatedAt = new Date().toISOString()
+        ledgerEntries.unshift(
+          ledgerEntry(transfer, demoAccount.number, transfer.amount.minorUnits, 0),
+          ledgerEntry(transfer, transfer.recipient.accountNumber, 0, transfer.amount.minorUnits),
+        )
+        auditEvents.unshift(auditEvent('TransferConfirmed', transfer.id, `Перевод ${transfer.id} подписан и исполнен`))
+      }
+
+      return res.status(200).json({ transferId: transfer.id, status: transfer.status, transfer })
+    }
+
+    const cancelMatch = route.match(/^transfers\/([^/]+)\/cancel$/)
+    if (req.method === 'POST' && cancelMatch) {
+      const transfer = seededTransfers.find((item) => item.id === cancelMatch[1])
+      if (!transfer) {
+        return res.status(404).json({ message: 'Transfer not found.' })
+      }
+
+      if (transfer.status === 'PendingClientConfirmation') {
+        demoAccount.availableBalance.minorUnits += transfer.amount.minorUnits
+        demoAccount.reservedBalance.minorUnits = Math.max(0, demoAccount.reservedBalance.minorUnits - transfer.amount.minorUnits)
+        transfer.status = 'Cancelled'
+        transfer.updatedAt = new Date().toISOString()
+        auditEvents.unshift(auditEvent('TransferCancelled', transfer.id, `Перевод ${transfer.id} отменен клиентом`))
+      }
+
+      return res.status(200).json({ transferId: transfer.id, status: transfer.status, transfer })
     }
 
     const claimMatch = route.match(/^transfers\/([^/]+)\/unauthorized-claim$/)
     if (req.method === 'POST' && claimMatch) {
-      return res.status(202).json({ transferId: claimMatch[1], status: 'Disputed' })
+      const transfer = seededTransfers.find((item) => item.id === claimMatch[1])
+      if (transfer) {
+        transfer.status = 'Disputed'
+        transfer.updatedAt = new Date().toISOString()
+        auditEvents.unshift(auditEvent('TransferDisputed', transfer.id, `Клиент оспорил перевод ${transfer.id}`))
+      }
+      return res.status(202).json({ transferId: claimMatch[1], status: transfer?.status || 'Disputed', transfer })
     }
 
     if (req.method === 'GET' && route === 'admin/users') {
@@ -222,36 +350,9 @@ function dashboard() {
     },
     accounts: [demoAccount],
     transfers: seededTransfers,
-    ledger: [
-      {
-        id: 'ledger-1',
-        transferId: 'demo-transfer-2',
-        accountNumber: demoAccount.number,
-        debitMinorUnits: 80000,
-        creditMinorUnits: 0,
-        currency: 'RUB',
-        createdAt: '2026-05-14T08:21:00.000Z',
-      },
-      {
-        id: 'ledger-2',
-        transferId: 'demo-transfer-2',
-        accountNumber: '40817810000000000888',
-        debitMinorUnits: 0,
-        creditMinorUnits: 80000,
-        currency: 'RUB',
-        createdAt: '2026-05-14T08:21:00.000Z',
-      },
-    ],
+    ledger: ledgerEntries,
     riskChecks,
-    auditEvents: [
-      {
-        id: 'audit-1',
-        operationId: 'demo-transfer-1',
-        eventType: 'TransferCreated',
-        message: 'Создано платежное распоряжение',
-        createdAt: '2026-05-14T12:30:00.000Z',
-      },
-    ],
+    auditEvents,
     notifications: [
       {
         id: 'notification-1',
@@ -273,6 +374,32 @@ function dashboard() {
       'Production C# backend остаётся в репозитории для контейнерного деплоя',
     ],
   }
+}
+
+function ledgerEntry(transfer, accountNumber, debitMinorUnits, creditMinorUnits) {
+  return {
+    id: `ledger-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    transferId: transfer.id,
+    accountNumber,
+    debitMinorUnits,
+    creditMinorUnits,
+    currency: transfer.amount.currency || 'RUB',
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function auditEvent(eventType, operationId, message) {
+  return {
+    id: `audit-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    operationId,
+    eventType,
+    message,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function formatRub(minorUnits) {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' }).format(minorUnits / 100)
 }
 
 function riskCheck(id, transferId, checkType, decision, details) {
