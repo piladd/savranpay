@@ -64,6 +64,41 @@ test('backend healthcheck is ready', async ({ request }) => {
   expect(await response.json()).toEqual({ status: 'ready', storage: 'postgresql' })
 })
 
+test('frontend sends production API requests to Railway backend', async ({ page }) => {
+  const apiRequests: string[] = []
+  const failedRequests: string[] = []
+  page.on('request', (request) => {
+    const url = request.url()
+    if (url.includes('/api/v1/')) {
+      apiRequests.push(url)
+    }
+  })
+  page.on('requestfailed', (request) => {
+    const url = request.url()
+    if (url.includes('/api/v1/')) {
+      failedRequests.push(`${request.method()} ${url}`)
+    }
+  })
+
+  await page.goto(`${frontendUrl}/cabinet/client`)
+  await page.getByLabel('Логин').fill(accounts.customer.login)
+  await page.getByLabel('Пароль').fill(requiredPassword('customer'))
+  await page.getByRole('button', { name: 'Войти' }).click()
+  await expect(page.getByText(accounts.customer.role, { exact: true })).toBeVisible()
+  await Promise.all([
+    page.waitForResponse((response) => response.url() === `${backendUrl}/api/v1/auth/sessions`),
+    page.locator('.security-panel').getByRole('button', { name: 'Обновить' }).click(),
+  ])
+  await page.locator('header').getByRole('button', { name: 'Выйти' }).click()
+
+  expect(apiRequests).toContain(`${backendUrl}/api/v1/auth/login`)
+  expect(apiRequests).toContain(`${backendUrl}/api/v1/dashboard`)
+  expect(apiRequests).toContain(`${backendUrl}/api/v1/auth/sessions`)
+  expect(apiRequests).toContain(`${backendUrl}/api/v1/auth/logout`)
+  expect(apiRequests.filter((url) => url.startsWith(`${frontendUrl}/api/v1/`))).toEqual([])
+  expect(failedRequests).toEqual([])
+})
+
 test('login, me, refresh and logout work for all roles', async ({ request }) => {
   for (const key of Object.keys(accounts) as Array<keyof typeof accounts>) {
     const login = await backendLogin(request, key)
@@ -93,10 +128,10 @@ test('role navigation exposes only permitted frontend cabinets', async ({ page }
     await page.getByLabel('Логин').fill(account.login)
     await page.getByLabel('Пароль').fill(requiredPassword(key))
     await page.getByRole('button', { name: 'Войти' }).click()
-    await expect(page.getByText(account.role)).toBeVisible()
+    await expect(page.getByText(account.role, { exact: true })).toBeVisible()
 
     await page.goto(`${frontendUrl}${account.cabinet}`)
-    await expect(page.getByText(account.role)).toBeVisible()
+    await expect(page.getByText(account.role, { exact: true })).toBeVisible()
 
     if (account.role !== 'Admin') {
       await page.goto(`${frontendUrl}/cabinet/admin`)

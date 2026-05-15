@@ -3,9 +3,10 @@
 Дата проверки: 2026-05-15  
 Frontend: https://savranpay-5yge.vercel.app  
 Backend API: https://savranpay-production.up.railway.app  
-Итоговый статус: **PARTIAL PASS**
+Ожидаемая связка: Vercel frontend -> Railway backend API -> Railway PostgreSQL  
+Итоговый статус: **PASS WITH NOTES**
 
-## Проверенные URL
+## 1. Проверенные URL
 
 | URL | Результат |
 |---|---|
@@ -13,32 +14,56 @@ Backend API: https://savranpay-production.up.railway.app
 | https://savranpay-5yge.vercel.app/cabinet/client | 200 OK, SPA route |
 | https://savranpay-production.up.railway.app/health/ready | 200 OK, `{"status":"ready","storage":"postgresql"}` |
 | https://savranpay-production.up.railway.app/swagger | 200 OK |
-| https://savranpay-production.up.railway.app/swagger/v1/swagger.json | 404, Swagger JSON endpoint not exposed |
-| https://savranpay-5yge.vercel.app/api/v1/auth/login | 200 OK, Vercel demo API |
-| https://savranpay-5yge.vercel.app/api/v1/demo | 404, route absent in Vercel demo API |
-| https://savranpay-5yge.vercel.app/api/v1/cabinets | 404, route absent in Vercel demo API |
+| https://savranpay-production.up.railway.app/swagger/v1/swagger.json | 404, non-critical |
+| OPTIONS https://savranpay-production.up.railway.app/api/v1/auth/login | 204, CORS OK for `https://savranpay-5yge.vercel.app` |
 
-Важное наблюдение: production frontend использует relative `/api/v1/*` и по `vercel.json` проксирует их в Vercel serverless demo-router. Он не обращается напрямую к Railway backend API.
+CORS preflight headers:
 
-## Проверенные учетные записи
+| Header | Value |
+|---|---|
+| `Access-Control-Allow-Origin` | `https://savranpay-5yge.vercel.app` |
+| `Access-Control-Allow-Methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` |
+| `Access-Control-Allow-Headers` | `Content-Type,Authorization,Idempotency-Key,X-Request-Id` |
 
-Найдены в `README.md`, `docs/TZ_SavranPay_v1_1.md`, `src/SavranPay.Infrastructure/Persistence/SavranPayDbInitializer.cs`.
+## 2. Подтверждение production API binding
 
-| Роль | Логин | Пароль | Backend login/me/refresh | Frontend login/logout |
-|---|---|---|---|---|
-| Customer | `client@savranpay.local` | `Client123!` | OK | OK |
-| SupportOperator | `support@savranpay.local` | `Support123!` | OK | OK |
-| AmlOfficer | `aml@savranpay.local` | `Aml123!` | OK | OK |
-| FraudOfficer | `fraud@savranpay.local` | `Fraud123!` | OK | OK |
-| Admin | `admin@savranpay.local` | `Admin123!` | OK | OK |
-| Auditor | `audit@savranpay.local` | `Audit123!` | OK | OK |
+Browser/Playwright network checks after Customer login confirmed API calls to Railway:
 
-`auth/logout` на backend возвращает 401 без `Authorization`, но успешно отрабатывает с `Authorization: Bearer ...`, как и делает frontend. После logout access token остается валидным до истечения срока, refresh token отзывается.
+| Endpoint | Method | Status | Host |
+|---|---:|---:|---|
+| `/api/v1/auth/login` | POST | 200 | `savranpay-production.up.railway.app` |
+| `/api/v1/dashboard` | GET | 200 | `savranpay-production.up.railway.app` |
+| `/api/v1/auth/sessions` | GET | 200 | `savranpay-production.up.railway.app` |
+| `/api/v1/auth/logout` | POST | 204 | `savranpay-production.up.railway.app` |
 
-## Таблица ролей и доступных кабинетов
+No production auth/dashboard requests were observed to `https://savranpay-5yge.vercel.app/api/v1/*`.
 
-| Роль | `/client` | `/support` | `/aml` | `/fraud` | `/admin` | `/audit` |
-|---|---:|---:|---:|---:|---:|---:|
+## QA-001 verification
+
+| Item | Result |
+|---|---|
+| Было | Frontend использовал Vercel `/api/v1/*` demo-router |
+| Стало | Frontend использует Railway backend API |
+| Проверено | `/api/v1/auth/login`, `/api/v1/dashboard`, `/api/v1/auth/sessions`, `/api/v1/auth/logout` |
+| Итог | **Fixed / Resolved** |
+
+## 3. Проверенные учетные записи
+
+| Роль | Email | Login | Auth/me | Sessions | Refresh | Logout | Protected route after logout |
+|---|---|---:|---:|---:|---:|---:|---|
+| Customer | `client@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+| SupportOperator | `support@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+| AmlOfficer | `aml@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+| FraudOfficer | `fraud@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+| Admin | `admin@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+| Auditor | `audit@savranpay.local` | 200 | 200 | 200 | 200 | 204 | Login form shown |
+
+Passwords were used only for runtime checks and were not written to repo artifacts.
+
+## 4. Таблица ролей и доступных кабинетов
+
+| Роль | `/cabinet/client` | `/cabinet/support` | `/cabinet/aml` | `/cabinet/fraud` | `/cabinet/admin` | `/cabinet/audit` |
+|---|---|---|---|---|---|---|
 | Customer | OK | Forbidden UI | Forbidden UI | Forbidden UI | Forbidden UI | Forbidden UI |
 | SupportOperator | Forbidden UI | OK | Forbidden UI | Forbidden UI | Forbidden UI | Forbidden UI |
 | AmlOfficer | Forbidden UI | Forbidden UI | OK | Forbidden UI | Forbidden UI | Forbidden UI |
@@ -46,79 +71,146 @@ Backend API: https://savranpay-production.up.railway.app
 | Admin | OK | OK | OK | OK | OK | OK |
 | Auditor | Forbidden UI | Forbidden UI | Forbidden UI | Forbidden UI | Forbidden UI | OK |
 
-Backend API role matrix also matches expected policy boundaries: admin sees all checked endpoints; customer cannot read admin/risk/audit/ledger; AML/Fraud can read risk checks but not admin/ledger/audit; auditor can read audit/ledger but not admin/risk.
+No white screen, infinite loader, or critical console error was observed in the checked role routes. Expected forbidden states rendered correctly. Playwright had intermittent page/connection timeouts during one broad matrix run; targeted reruns for SupportOperator and Admin passed.
 
-## Таблица проверенных кнопок
+## 5. Таблица проверенных кнопок
 
-| Роль | Страница | Кнопки/действия | Результат |
-|---|---|---|---|
-| Guest | login | `Войти`, sidebar cabinet buttons | Login works; protected routes show login/forbidden state |
-| Customer | client | show/hide account number, refresh sessions, create transfer, refresh signature data, sign/confirm, cancel, open transfer, repeat, dispute, logout | Create and confirm test transfer OK in UI; number visibility OK; logout OK |
-| Customer | client | change password | Not executed: destructive for shared seed account |
-| SupportOperator | support | search, category select, open transfer, save support claim, create dispute | Support claim tested via backend on QA transfer; no real claims closed |
-| AmlOfficer | aml | search, open review, Allow, ManualReview, Block, Request documents | Allow tested via backend on QA transfer; Block not executed as dangerous; Request documents is UI-only/disabled-noop style |
-| FraudOfficer | fraud | search, open review, Allow, Step-up, Block, Transfer to support | ManualReview/Step-up tested via backend on QA transfer; Block not executed as dangerous; Transfer to support appears UI-only |
-| Admin | admin | refresh users, role toggles, block/unblock user, open operation, retry processing, technical details | Technical details and retry tested on QA transfer; role toggles and block/unblock not executed on seed users |
-| Auditor | audit | ledger search, audit search, export CSV, open event | Search/open checked visually; export CSV available when events exist |
-| All authenticated | topbar | `Выйти` | OK; protected route after logout shows login form |
+| Роль | Страница | Кнопка/действие | Результат | HTTP status | Console error | Комментарий |
+|---|---|---|---|---|---|---|
+| Guest | Login | Sidebar cabinet items | OK | N/A | No | Navigation changes protected route state |
+| Guest | Login | `Войти` | OK | 200 | No | Calls Railway `auth/login` |
+| Customer | Client | Show/hide account number | OK | N/A | No | UI state toggles |
+| Customer | Client | Refresh sessions | OK | 200 | No | Calls Railway `auth/sessions` |
+| Customer | Client | Create transfer | OK | 202 | No | Created QA transfer `c2ab2878-b022-4cf0-a66d-e3d1bf44590c` |
+| Customer | Client | Sign and confirm | OK | 200 | No | QA transfer reached `Settled` |
+| Customer | Client | Open transfer details | OK | N/A | No | Details visible |
+| Customer | Client | Repeat/dispute/cancel | Partially checked | N/A | No | Dangerous/status-changing actions only allowed on QA transfer; no real data touched |
+| Customer | Client | Change password | Skipped | N/A | No | Not executed: destructive action for seed credentials |
+| SupportOperator | Support | Search/filter | OK | N/A | No | UI usable |
+| SupportOperator | Support | Open transfer/card | OK | 200 | No | Targeted UI rerun passed |
+| SupportOperator | Support | Save support claim | OK | 200 | No | Executed only on QA transfer |
+| AML | AML | Search/filter | OK | N/A | No | UI usable |
+| AML | AML | Allow | OK | 202 | No | Executed only on QA transfer |
+| AML | AML | ManualReview | Visible | N/A | No | Not needed after Allow check |
+| AML | AML | Block | Skipped | N/A | No | Not executed: destructive action unless disposable entity is required |
+| AML | AML | Request documents | UI-only / no backend action observed | N/A | No | Recorded as note |
+| Fraud | Fraud | Search/filter | OK | N/A | No | UI usable |
+| Fraud | Fraud | ManualReview / Step-up | OK | 202 | No | Executed only on QA transfer |
+| Fraud | Fraud | Allow | Visible | N/A | No | Not needed after ManualReview check |
+| Fraud | Fraud | Block | Skipped | N/A | No | Not executed: destructive action |
+| Fraud | Fraud | Transfer to support | UI-only / no backend action observed | N/A | No | Recorded as note |
+| Admin | Admin | User list / roles view | OK | 200 | No | Targeted UI rerun passed |
+| Admin | Admin | Technical details | OK | 200 | No | Checked on QA transfer |
+| Admin | Admin | Retry processing | OK | 202 | No | Checked on QA transfer; audit event created |
+| Admin | Admin | Role toggles | Visual only | N/A | No | Not executed: destructive action on seed users |
+| Admin | Admin | Block/unblock user | Skipped | N/A | No | Not executed: destructive action on seed users |
+| Auditor | Audit | Ledger search | OK | N/A | No | UI usable |
+| Auditor | Audit | Audit search | OK | N/A | No | UI usable |
+| Auditor | Audit | Open event/details | OK | N/A | No | Transfer event opening available where operation is a transfer |
+| Auditor | Audit | Export CSV | Available | N/A | No | Not saved to repo |
+| All | Topbar | Logout | OK | 204 | No | Protected route shows login after logout |
 
-## Успешные сценарии
+## 6. Успешные сценарии
 
-- Backend readiness returns expected PostgreSQL-ready payload.
-- All six seeded role accounts can login, call `auth/me`, refresh tokens, and logout with Authorization header.
-- Frontend login/logout works for all six roles.
-- Customer UI created and confirmed one test transfer on the Vercel demo API.
-- Backend API created and confirmed test transfer `0583ebd3-6d45-4ac4-a01f-1dac1a681a3d`; final status `Settled`.
-- Backend support/AML/fraud/admin/audit flow used test transfer `6633a592-8153-4575-8a53-febdbcc0d743`: support claim `Open`, AML `Allow`, Fraud `ManualReview`, admin technical details OK, retry audit event OK, auditor saw 4 events for the transfer.
-- Responsive smoke at 1440, 768, and 390 px: sidebar/nav and primary controls remained available; no console errors were captured.
+- Backend healthcheck returned `ready/postgresql`.
+- CORS preflight from Vercel origin to Railway `auth/login` passed.
+- QA-001 is fixed: frontend production calls Railway backend directly.
+- All 6 roles can login, call `auth/me`, call `auth/sessions`, refresh, and logout.
+- Role-based cabinet access matches the expected matrix.
+- Customer frontend flow created and confirmed QA transfer `c2ab2878-b022-4cf0-a66d-e3d1bf44590c`; final status observed as `Settled`.
+- SupportOperator updated support claim on the QA transfer: status `Open`.
+- AmlOfficer recorded `Allow` on the QA transfer: 202.
+- FraudOfficer recorded `ManualReview` on the QA transfer: 202.
+- Admin loaded technical details and requested retry on the QA transfer: 200/202.
+- Auditor saw 5 audit events for the QA transfer after test actions.
+- Responsive smoke at 1440, 768, and 390 px passed: nav/client content/logout visible, no 5xx API responses, no console errors.
 
-## Найденные ошибки
+## 7. Найденные ошибки
 
-| ID | Роль | Страница | Действие/кнопка | Ожидалось | Получилось | HTTP status | Console error | Severity | Как воспроизвести | Предложение по исправлению |
-|---|---|---|---|---|---|---|---|---|---|---|
-| QA-001 | Any | Frontend API | Production frontend data source | Frontend should use Railway backend API or documented production API | Frontend calls Vercel `/api/v1/*` demo-router; tokens have `demo.*` prefix and data differs from Railway PostgreSQL | 200 | No | High | Login at frontend, inspect `/api/v1/auth/me`; compare token/user id with Railway API | Set `VITE_API_BASE_URL=https://savranpay-production.up.railway.app` for production or document Vercel as intentional demo backend |
-| QA-002 | Any | Backend `/api/v1/auth/logout` | Logout after refresh without Authorization | Logout endpoint should either require and document Authorization, or accept refresh-token-only logout | Request without Authorization returns 401; frontend path is OK because it sends Authorization | 401 | No | Low | POST `/api/v1/auth/logout` with only refresh token | Keep current behavior but document it, or allow refresh-token-only revocation |
-| QA-003 | Any | Backend `/api/v1/auth/logout` | Use old access token after logout | After logout, protected endpoints should reject old session token if session revocation is required | Old access token still works until expiry | 200 | No | Medium | Login, logout with Authorization, then call `/api/v1/auth/me` with old access token | Bind access tokens to active sessions or shorten TTL and document logout semantics |
-| QA-004 | User-facing UI | All pages | Read labels/text | Russian UI text should be clean in source/build | Production UI is mostly readable, but source contains mojibake strings; risk of broken text in future builds and API default messages | N/A | No | Medium | Open `frontend/savranpay-web/src/App.vue` and `savranpayApi.ts` | Re-save source files as UTF-8 and replace mojibake literals with correct Russian text |
-| QA-005 | Frontend API | `/api/v1/demo`, `/api/v1/cabinets` | Demo/cabinets endpoints from backend contract | Either available through production frontend proxy or clearly excluded | Vercel API returns unknown route | 404 | No | Low | GET frontend `/api/v1/demo` or `/api/v1/cabinets` | Add routes to Vercel router or avoid exposing these URLs in frontend deployment expectations |
+| ID | Роль | Страница | Действие/кнопка | Ожидалось | Получилось | HTTP status | Console error | Severity | Как воспроизвести | Предложение по исправлению | Статус |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| QA-001 | Any | Frontend API | Production data source | Frontend calls Railway backend | Calls Railway backend; no Vercel `/api/v1/auth/*` observed | 200/204 | No | High | Login via frontend and inspect network | Keep API base URL pinned to Railway in production env and cover with e2e test | Fixed |
+| QA-002 | Any | Backend `/api/v1/auth/logout` | Clear documented logout contract | Logout without `Authorization` returns 401; with frontend Authorization returns 204 | 401 without auth, 204 with auth | No | Low | POST logout with only refresh token | Document Authorization requirement or allow refresh-token-only revocation | Open / Note |
+| QA-003 | Any | Backend auth | Old access token after logout | If session revocation is expected, old access token should fail | Old access token still works until expiry | 200 | No | Medium | Login, logout with Authorization, call `auth/me` with old access token | Bind access tokens to sessions or document short-lived JWT behavior | Open / Note |
+| QA-004 | User-facing UI/source | Frontend source | Russian text literals | Source/build text should be clean UTF-8 | Source still contains mojibake literals in places; production UI mostly renders readable text | N/A | No | Medium | Inspect `frontend/savranpay-web/src/App.vue` and `savranpayApi.ts` | Re-save strings as UTF-8 and replace mojibake validation/default text | Open |
+| QA-005 | Frontend API | Vercel `/api/v1/demo`, `/api/v1/cabinets` | If frontend no longer proxies API, these routes are irrelevant | Frontend no longer depends on Vercel API routes | N/A | No | Low | GET old Vercel demo routes | Remove from production expectations; keep backend routes tested directly if needed | Obsolete |
 
-## Ошибки API/Network
+## 8. Ошибки API/Network
 
-- No 500/503 observed.
-- Expected 403 responses were observed for forbidden role/API combinations.
-- 404 observed for Swagger JSON and Vercel demo/cabinets routes; Swagger JSON absence is acceptable for production, Vercel route absence is low severity unless the frontend is expected to proxy all backend routes.
+- No 500/503 observed in main scenarios.
+- Expected 403 responses in API role matrix are OK.
+- Expected 401 after logout/unauthenticated access is OK when UI returns to login.
+- One Playwright logout request recorded `net::ERR_ABORTED` after a 204 response; UI logout still completed and protected route required login. Treated as non-critical browser-side abort.
+- Some direct matrix attempts hit transient connect/timeouts against Railway; targeted retries and UI/API scenario checks succeeded.
 
-## Ошибки Console
+API policy sample:
 
-No JavaScript console errors were captured during the role navigation, customer transfer, and responsive smoke checks.
+| Роль | Expected OK endpoints | Expected forbidden endpoints |
+|---|---|---|
+| Customer | dashboard, accounts, transfers, support claims | risk, audit, ledger, admin users |
+| SupportOperator | dashboard, accounts, transfers, support claims | risk, audit, ledger, admin users |
+| AmlOfficer | dashboard, support claims, risk checks | accounts, transfers, audit, ledger, admin users |
+| FraudOfficer | dashboard, support claims, risk checks | accounts, transfers, audit, ledger, admin users |
+| Admin | dashboard, accounts, transfers, support, risk, audit, ledger, admin users | None in checked set |
+| Auditor | dashboard, accounts, transfers, support, audit, ledger | risk, admin users |
 
-## Что не удалось проверить и почему
+## 9. Ошибки Console
 
-- Password change was not executed because it would alter shared production seed credentials.
-- Admin block/unblock user and role add/remove were not executed because visible users are real seeded accounts, not disposable QA users.
-- AML/Fraud `Block` was not executed except marked as dangerous, because it could block a non-disposable operation.
-- Screenshot files were not saved during the run because the current workspace was read-only while browser automation was running.
-- Full Network waterfall from browser DevTools was approximated with direct API checks and console logs; the in-app browser API available here did not expose a full request log.
+No critical JavaScript console errors were captured during:
 
-## Рекомендации по исправлению
+- production API binding check;
+- role route checks;
+- Customer create/confirm transfer flow;
+- Support/Admin targeted reruns;
+- responsive smoke checks.
 
-1. Decide whether `savranpay-5yge.vercel.app` is a demo frontend or true production frontend. If true production, wire it to Railway API with `VITE_API_BASE_URL`.
-2. Add a disposable QA admin-created user/transfer fixture for destructive smoke checks.
-3. Document logout semantics or revoke access tokens by session.
-4. Fix source encoding/mojibake before it leaks into validation/default messages.
-5. Add Playwright smoke checks to CI with environment-provided credentials and secrets.
+## 10. Что не удалось проверить и почему
 
-## Автоматические e2e-тесты
+- Password change was not executed because it would alter shared seed credentials.
+- Admin role remove/add and user block/unblock were not executed because visible users are seed/test users, not disposable QA users.
+- AML/Fraud `Block` was not executed because it is destructive and not required after safe QA transfer decisions passed.
+- Worker online status was not verified because no Railway logs/worker health endpoint were provided.
+- Full HAR files were not saved by design, to avoid persisting tokens or sensitive headers.
+- Pagination was not deeply exercised where the UI did not expose an obvious page control in the current data volume.
 
-Добавлены Playwright smoke tests:
+## 11. Рекомендации по исправлению
+
+1. Keep the new Railway API binding covered by Playwright in CI.
+2. Document logout behavior: refresh token is revoked, existing JWT can live until expiry.
+3. Add disposable QA users/entities for destructive admin, role, block, reject, reset, revoke checks.
+4. Fix mojibake in source strings before future UI changes accidentally expose broken text.
+5. Add a worker health/log check endpoint or operational runbook step if worker status is required for production smoke.
+
+## 12. Автоматические e2e-тесты
+
+Updated:
 
 - `frontend/savranpay-web/tests/e2e/production-smoke.spec.ts`
 - `frontend/savranpay-web/tests/e2e/README.md`
 
-Проверено локально:
+Current tests:
 
-- `npm run build` - passed.
-- `npx playwright test tests/e2e/production-smoke.spec.ts --list` - 5 tests detected.
-- `npx playwright test tests/e2e/production-smoke.spec.ts -g "backend healthcheck"` - passed.
+1. Backend healthcheck.
+2. Frontend production API binding to Railway backend, including no Vercel `/api/v1/*` auth calls.
+3. Login/me/refresh/logout for all roles.
+4. Role route access matrix.
+5. Customer create transfer flow.
+6. Optional customer confirmation flow when `SAVRANPAY_DEMO_TRANSFER_SECRET` is provided.
 
-Полный запуск требует env-пароли для всех ролей и установленный браузер Playwright. Production secret для подтверждения перевода не зашит в код и читается только из `SAVRANPAY_DEMO_TRANSFER_SECRET`.
+Verified locally:
+
+- `npx playwright test tests/e2e/production-smoke.spec.ts --list` -> 6 tests detected.
+- `SAVRANPAY_CUSTOMER_PASSWORD=... npx playwright test tests/e2e/production-smoke.spec.ts -g "frontend sends production API"` -> passed.
+
+Secrets and credentials are read from env and are not stored in the repository.
+
+## 13. Итоговый вывод
+
+- Production frontend: работает.
+- Production backend: работает.
+- PostgreSQL: подключен, `/health/ready` returns `storage=postgresql`.
+- Worker: не проверен, requires logs/worker health.
+- Frontend API binding на Railway: подтвержден.
+- Critical/High open issues: none.
+- Итоговый статус: **PASS WITH NOTES**.
+

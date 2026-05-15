@@ -21,6 +21,9 @@ SAVRANPAY_AUDITOR_PASSWORD='...' \
 npx playwright test tests/e2e/production-smoke.spec.ts
 ```
 
+The suite includes a production API binding check. It fails if browser requests go to
+`https://savranpay-5yge.vercel.app/api/v1/*` instead of the configured Railway backend.
+
 Optional confirmation flow:
 
 ```bash
