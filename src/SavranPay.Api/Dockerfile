@@ -16,7 +16,8 @@ RUN dotnet publish src/SavranPay.Api/SavranPay.Api.csproj -c Release -o /app/pub
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine AS runtime
 WORKDIR /app
+ENV ASPNETCORE_HTTP_PORTS=8080
 COPY --from=build /app/publish .
 COPY --from=frontend-build /frontend/dist ./wwwroot
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "SavranPay.Api.dll"]
+ENTRYPOINT ["sh", "-c", "exec dotnet SavranPay.Api.dll --urls \"http://0.0.0.0:${PORT:-${ASPNETCORE_HTTP_PORTS:-8080}}\""]

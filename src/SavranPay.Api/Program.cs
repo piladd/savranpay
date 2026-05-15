@@ -124,9 +124,43 @@ long serverErrors = 0;
 if (usePostgres)
 {
     using var scope = app.Services.CreateScope();
-    await SavranPayDbInitializer.InitializeAsync(
-        scope.ServiceProvider.GetRequiredService<SavranPayDbContext>(),
+    var db = scope.ServiceProvider.GetRequiredService<SavranPayDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("SavranPay.DatabaseStartup");
+    await InitializePostgresWithRetryAsync(
+        db,
+        logger,
+        builder.Configuration.GetValue<int?>("Database:StartupRetrySeconds") ?? 90,
         CancellationToken.None);
+}
+
+static async Task InitializePostgresWithRetryAsync(
+    SavranPayDbContext db,
+    ILogger logger,
+    int retrySeconds,
+    CancellationToken cancellationToken)
+{
+    var deadline = DateTimeOffset.UtcNow.AddSeconds(Math.Max(1, retrySeconds));
+    var attempt = 0;
+
+    while (true)
+    {
+        attempt++;
+        try
+        {
+            await SavranPayDbInitializer.InitializeAsync(
+                db,
+                cancellationToken);
+            return;
+        }
+        catch (Exception exception) when (DateTimeOffset.UtcNow < deadline)
+        {
+            logger.LogWarning(
+                exception,
+                "PostgreSQL initialization attempt {Attempt} failed. Retrying before startup deadline.",
+                attempt);
+            await Task.Delay(TimeSpan.FromSeconds(Math.Min(10, attempt * 2)), cancellationToken);
+        }
+    }
 }
 
 var httpsRedirectionDisabled = builder.Configuration.GetValue<bool>("DISABLE_HTTPS_REDIRECTION");

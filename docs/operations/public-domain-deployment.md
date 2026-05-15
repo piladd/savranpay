@@ -137,32 +137,51 @@ If Render gives another service URL, use that exact URL instead. After changing 
 
 ## Railway backend and worker
 
-Railway must build this repository with Dockerfiles, not Railpack. The root `railway.json` is for the backend API service and points Railway to:
+Railway must build this repository with Dockerfiles, not Railpack. Create these services in one Railway project:
+
+- `savranpay` - public backend API service;
+- `savranpay-worker` - private background worker service;
+- `savranpay-postgres` - Railway PostgreSQL service.
+
+The root `railway.json` is for the backend API service and points Railway to:
 
 ```text
 src/SavranPay.Api/Dockerfile
 ```
 
-Create the backend service from the repository root. If Railway still tries Railpack, set this service variable explicitly:
+Create the `savranpay` backend service from the repository root. If Railway still tries Railpack, set this service variable explicitly:
 
 ```text
 RAILWAY_DOCKERFILE_PATH=src/SavranPay.Api/Dockerfile
 ```
 
-Backend variables:
+Backend service `savranpay` variables:
 
 ```text
+PORT=8080
 ASPNETCORE_HTTP_PORTS=8080
 DISABLE_HTTPS_REDIRECTION=true
+Database__StartupRetrySeconds=90
 Jwt__RequireAuthorization=true
 Jwt__SigningKey=<generated-secret-at-least-32-bytes>
-ConnectionStrings__Postgres=Host=${{Postgres.PGHOST}};Port=${{Postgres.PGPORT}};Database=${{Postgres.PGDATABASE}};Username=${{Postgres.PGUSER}};Password=${{Postgres.PGPASSWORD}};SSL Mode=Require;Trust Server Certificate=true
+ConnectionStrings__Postgres=Host=${{savranpay-postgres.PGHOST}};Port=${{savranpay-postgres.PGPORT}};Database=${{savranpay-postgres.PGDATABASE}};Username=${{savranpay-postgres.PGUSER}};Password=${{savranpay-postgres.PGPASSWORD}};SSL Mode=Require;Trust Server Certificate=true
 Cors__AllowedOrigins__0=https://<your-vercel-frontend>.vercel.app
 VITE_API_BASE_URL=
 VITE_DEMO_TRANSFER_SECRET=<training-demo-secret>
 ```
 
-For the worker, create a second Railway service from the same repository. Railway uses one config file per service, so set the worker service config file path to:
+The API Dockerfile listens on `0.0.0.0:${PORT:-8080}` and exposes port `8080`. The readiness endpoint stays strict: `/health/ready` returns HTTP 503 when PostgreSQL is unavailable. If the Railway healthcheck reaches 503, check `ConnectionStrings__Postgres` first and confirm that the variable references the `savranpay-postgres` service name exactly.
+
+Expected healthy response:
+
+```json
+{
+  "status": "ready",
+  "storage": "postgresql"
+}
+```
+
+For `savranpay-worker`, create a second Railway service from the same repository. Railway uses one config file per service, so set the worker service config file path to:
 
 ```text
 /railway.worker.json
@@ -174,13 +193,13 @@ If your Railway UI does not expose a config file path field, leave the repo root
 RAILWAY_DOCKERFILE_PATH=src/SavranPay.Workers/Dockerfile
 ```
 
-Worker variables:
+Worker service `savranpay-worker` variables:
 
 ```text
-ConnectionStrings__Postgres=Host=${{Postgres.PGHOST}};Port=${{Postgres.PGPORT}};Database=${{Postgres.PGDATABASE}};Username=${{Postgres.PGUSER}};Password=${{Postgres.PGPASSWORD}};SSL Mode=Require;Trust Server Certificate=true
+ConnectionStrings__Postgres=Host=${{savranpay-postgres.PGHOST}};Port=${{savranpay-postgres.PGPORT}};Database=${{savranpay-postgres.PGDATABASE}};Username=${{savranpay-postgres.PGUSER}};Password=${{savranpay-postgres.PGPASSWORD}};SSL Mode=Require;Trust Server Certificate=true
 ```
 
-Add a Railway PostgreSQL database to the project and connect both services to it. The backend should expose `/health/ready`; the worker has no public HTTP endpoint.
+The worker must not have a public domain and must not have a healthcheck path. It has no HTTP listener; it only consumes the PostgreSQL connection and processes outbox messages.
 
 For a Vercel frontend with Railway backend, set Vercel to the public Railway backend URL:
 
