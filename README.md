@@ -1,5 +1,27 @@
 # SavranPay
 
+## Public production deployment
+
+Frontend public domain:
+
+```text
+https://savranpay-5yge.vercel.app
+```
+
+Backend API:
+
+```text
+https://savranpay-production.up.railway.app
+```
+
+Production traffic flow:
+
+```text
+Vercel frontend -> Railway backend API -> Railway PostgreSQL
+```
+
+The public root URL opens the login screen. It does not prefill or display customer credentials.
+
 SavranPay - учебный банковский сервис переводов денежных средств на C#/.NET и Vue 3. Проект показывает полный контур обработки перевода: авторизация пользователя, ролевые кабинеты, создание распоряжения, проверки AML/антифрод, подтверждение операции, ledger-учет, аудит, уведомления и подготовка к публикации frontend на публичном домене.
 
 ## Что реализовано
@@ -86,7 +108,7 @@ npm run dev
 Открыть:
 
 ```text
-http://localhost:5173/cabinet/client
+http://localhost:5173
 ```
 
 ## Запуск через Docker Compose
@@ -101,7 +123,7 @@ docker compose up --build
 После запуска:
 
 ```text
-Frontend: http://localhost:5173/cabinet/client
+Frontend: http://localhost:5173
 Backend:  http://localhost:8080
 Health:   http://localhost:8080/health/ready
 Metrics:  http://localhost:8080/metrics
@@ -222,7 +244,7 @@ netlify.toml     frontend
 2. Создать Render Blueprint из `render.yaml`.
 3. Получить публичный URL продукта `https://savranpay.onrender.com`.
 4. Открыть `/health/ready` и убедиться, что PostgreSQL готов.
-5. Открыть `/cabinet/client` и войти демо-пользователем.
+5. Открыть `/` и войти под нужной ролью.
 
 Vue frontend также собирается внутрь backend Docker-образа, поэтому для демонстрации достаточно одного публичного URL. Netlify остаётся опциональным вариантом отдельного frontend-деплоя.
 
