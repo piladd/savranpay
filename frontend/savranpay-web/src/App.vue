@@ -63,7 +63,7 @@ const emptyDashboard: DashboardView = {
 
 const currentPath = ref(normalizePath(window.location.pathname))
 const user = ref<AuthUser | null>(null)
-const loginForm = ref({ login: 'client@savranpay.local', password: 'Client123!' })
+const loginForm = ref({ login: '', password: '' })
 const busy = ref(false)
 const error = ref('')
 const lastChallenge = ref('')
@@ -134,7 +134,7 @@ const passwordForm = ref({
   repeatPassword: '',
 })
 
-const activeCabinet = computed(() => cabinets.find((cabinet) => cabinet.path === currentPath.value) ?? cabinets[0])
+const activeCabinet = computed(() => cabinets.find((cabinet) => cabinet.path === currentPath.value) ?? null)
 const selectedAccount = computed(() => dashboard.value.accounts.find((account) => account.id === form.value.fromAccountId) ?? null)
 const recipientMatches = computed(() => {
   const digits = recipientSearch.value.replace(/\D/g, '')
@@ -148,10 +148,13 @@ const pendingTransfers = computed(() =>
 )
 const canUseCurrentCabinet = computed(() => {
   if (!user.value) return !getAccessToken()
+  if (!activeCabinet.value) return true
   return user.value.roles.includes(activeCabinet.value.role) || user.value.roles.includes('Admin')
 })
-const pageTitle = computed(() => activeCabinet.value.title)
-const pageSubtitle = computed(() => `${activeCabinet.value.role} · ${currentPath.value}`)
+const pageTitle = computed(() => activeCabinet.value?.title ?? 'SavranPay')
+const pageSubtitle = computed(() =>
+  activeCabinet.value ? `${activeCabinet.value.role} · ${currentPath.value}` : 'учебный fintech-сервис',
+)
 const totalBalance = computed(() =>
   dashboard.value.accounts.reduce((sum, account) => sum + account.availableBalance.minorUnits, 0),
 )
@@ -260,6 +263,10 @@ onMounted(async () => {
         user.value = null
         return
       }
+      if (currentPath.value === '/') {
+        const cabinet = cabinets.find((item) => user.value?.roles.includes(item.role)) ?? cabinets[0]
+        navigate(cabinet.path)
+      }
       await loadDashboard()
     } catch {
       await logout()
@@ -339,7 +346,7 @@ async function submitPasswordChange() {
     user.value = null
     dashboard.value = { ...emptyDashboard }
     sessions.value = []
-    navigate('/cabinet/client')
+    navigate('/')
   } catch (exception) {
     error.value = exception instanceof Error ? exception.message : 'Не удалось сменить пароль.'
   } finally {
@@ -723,7 +730,7 @@ async function signOut() {
   dashboard.value = { ...emptyDashboard }
   adminUsers.value = []
   sessions.value = []
-  navigate('/cabinet/client')
+  navigate('/')
 }
 
 function selectTransfer(transfer: TransferView) {
@@ -752,6 +759,7 @@ function selectTransfer(transfer: TransferView) {
 }
 
 function normalizePath(path: string) {
+  if (path === '/') return '/'
   const direct = cabinets.find((cabinet) => cabinet.path === path)
   if (direct) return direct.path
   if (path.startsWith('/cabinet/client/transfers/')) return '/cabinet/client'
@@ -1075,16 +1083,24 @@ function transferTimeline(transfer: TransferView) {
     <section v-if="!getAccessToken()" class="auth-layout">
       <form class="panel login-card" @submit.prevent="submitLogin">
         <div class="panel-head">
-          <span>Вход</span>
-          <small>client@savranpay.local / Client123!</small>
+          <div>
+            <span>Вход в SavranPay</span>
+            <small>Демо-кабинеты подключены к Railway API</small>
+          </div>
         </div>
-        <label>Логин <input v-model="loginForm.login" autocomplete="username" required /></label>
-        <label>Пароль <input v-model="loginForm.password" autocomplete="current-password" type="password" required /></label>
-        <button class="primary" type="submit" :disabled="busy">Войти</button>
+        <p class="login-copy">Учебный банковский интерфейс для переводов, риск-проверок, поддержки и аудита.</p>
+        <label>Логин <input v-model="loginForm.login" autocomplete="username" placeholder="email пользователя" required /></label>
+        <label>Пароль <input v-model="loginForm.password" autocomplete="current-password" placeholder="Введите пароль" type="password" required /></label>
+        <button class="primary" type="submit" :disabled="busy">{{ busy ? 'Входим...' : 'Войти' }}</button>
       </form>
 
       <article class="panel role-card">
-        <div class="panel-head"><span>Контуры доступа</span></div>
+        <div class="panel-head">
+          <div>
+            <span>Тестовые роли</span>
+            <small>Пароли не отображаются в production UI</small>
+          </div>
+        </div>
         <div class="chips">
           <span v-for="cabinet in cabinets" :key="cabinet.role">{{ cabinet.role }}</span>
         </div>

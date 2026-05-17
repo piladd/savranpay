@@ -132,7 +132,7 @@ No white screen, infinite loader, or critical console error was observed in the 
 | QA-001 | Any | Frontend API | Production data source | Frontend calls Railway backend | Calls Railway backend; no Vercel `/api/v1/auth/*` observed | 200/204 | No | High | Login via frontend and inspect network | Keep API base URL pinned to Railway in production env and cover with e2e test | Fixed |
 | QA-002 | Any | Backend `/api/v1/auth/logout` | Clear documented logout contract | Logout without `Authorization` returns 401; with frontend Authorization returns 204 | 401 without auth, 204 with auth | No | Low | POST logout with only refresh token | Document Authorization requirement or allow refresh-token-only revocation | Open / Note |
 | QA-003 | Any | Backend auth | Old access token after logout | If session revocation is expected, old access token should fail | Old access token still works until expiry | 200 | No | Medium | Login, logout with Authorization, call `auth/me` with old access token | Bind access tokens to sessions or document short-lived JWT behavior | Open / Note |
-| QA-004 | User-facing UI/source | Frontend source | Russian text literals | Source/build text should be clean UTF-8 | Source still contains mojibake literals in places; production UI mostly renders readable text | N/A | No | Medium | Inspect `frontend/savranpay-web/src/App.vue` and `savranpayApi.ts` | Re-save strings as UTF-8 and replace mojibake validation/default text | Open |
+| QA-004 | User-facing UI/source | Frontend source | Russian text literals | Source/build text should be clean UTF-8 | `App.vue`, `savranpayApi.ts`, e2e docs/tests and production UI text checked as clean UTF-8; no mojibake tokens found | N/A | No | Medium | Inspect frontend source and run build/smoke checks | Keep source files UTF-8 and avoid terminal recoding during edits | Fixed |
 | QA-005 | Frontend API | Vercel `/api/v1/demo`, `/api/v1/cabinets` | If frontend no longer proxies API, these routes are irrelevant | Frontend no longer depends on Vercel API routes | N/A | No | Low | GET old Vercel demo routes | Remove from production expectations; keep backend routes tested directly if needed | Obsolete |
 
 ## 8. Ошибки API/Network
@@ -204,6 +204,16 @@ Verified locally:
 
 Secrets and credentials are read from env and are not stored in the repository.
 
+## UI/UX polish verification
+
+- Layout polish: refreshed light banking theme, sidebar/topbar spacing, panels, buttons, badges, table overflow, technical `<pre>` blocks, mobile navigation and login page copy.
+- Pages covered by the polish: login, Customer, SupportOperator, AML, Fraud, Admin and Audit cabinets through shared layout, table, action, badge and detail styles.
+- Screen sizes checked locally: 1440 px, 768 px and 390 px. Login page has no page-level horizontal scroll after the mobile layout fix. Customer cabinet login could not be completed locally because the ignored local `.env` points dev mode to `https://localhost:5001`; production binding was checked against Vercel/Railway instead.
+- QA-004 mojibake: Fixed. Source files were verified as UTF-8 via Node checks; no common mojibake marker patterns were found in `frontend/savranpay-web/src`, e2e files or this report.
+- Build: `npm run build` passed after the UI changes.
+- Smoke/e2e: `npx playwright test tests/e2e/production-smoke.spec.ts --list` detected 6 tests. Full run without role passwords passed healthcheck and skipped 5 env-protected tests as designed. Targeted production API binding with `SAVRANPAY_CUSTOMER_PASSWORD` from env passed.
+- Railway API binding: preserved. `savranpayApi.ts` now defaults to `https://savranpay-production.up.railway.app` when no explicit `VITE_API_BASE_URL` is provided, and targeted browser smoke confirmed auth/dashboard/sessions/logout requests go to Railway, not `https://savranpay-5yge.vercel.app/api/v1/*`.
+
 ## 13. Итоговый вывод
 
 - Production frontend: работает.
@@ -213,4 +223,3 @@ Secrets and credentials are read from env and are not stored in the repository.
 - Frontend API binding на Railway: подтвержден.
 - Critical/High open issues: none.
 - Итоговый статус: **PASS WITH NOTES**.
-

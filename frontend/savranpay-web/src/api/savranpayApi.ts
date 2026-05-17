@@ -1,5 +1,6 @@
 const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim()
-const API_BASE_URL = configuredApiBaseUrl && configuredApiBaseUrl !== 'auto' ? configuredApiBaseUrl : ''
+const DEFAULT_API_BASE_URL = 'https://savranpay-production.up.railway.app'
+const API_BASE_URL = configuredApiBaseUrl && configuredApiBaseUrl !== 'auto' ? configuredApiBaseUrl : DEFAULT_API_BASE_URL
 const ACCESS_TOKEN_KEY = 'savranpay.accessToken'
 const REFRESH_TOKEN_KEY = 'savranpay.refreshToken'
 
