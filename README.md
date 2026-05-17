@@ -242,7 +242,7 @@ netlify.toml     frontend
 
 1. Опубликовать репозиторий в GitHub.
 2. Создать Render Blueprint из `render.yaml`.
-3. Получить публичный URL продукта `https://savranpay.onrender.com`.
+3. Получить публичный URL продукта `https://savranpay-5yge.vercel.app`.
 4. Открыть `/health/ready` и убедиться, что PostgreSQL готов.
 5. Открыть `/` и войти под нужной ролью.
 
